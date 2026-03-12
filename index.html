@@ -270,7 +270,7 @@
         <div class="ficon">🏷</div>
         <div class="flwrap">
           <div class="flabel">Adjustment Code</div>
-          <input class="finput" id="adjCode" type="text" value="RTP-IN" autocomplete="off">
+          <input class="finput" id="adjCode" type="text" value="GenQtyAdj" autocomplete="off">
         </div>
       </div>
       <div class="frow">
@@ -419,41 +419,58 @@ async function openCamera() {
   cameraActive = true;
 
   try {
-    if (typeof ZXing === 'undefined') throw new Error('Scanner library not loaded');
+    if (typeof ZXing === 'undefined') throw new Error('Scanner library not loaded. Check internet connection.');
+
     codeReader = new ZXing.BrowserMultiFormatReader();
 
-    const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-    // Prefer back/environment camera on mobile
-    const backCam = devices.find(d => /back|rear|environment/i.test(d.label)) || devices[devices.length-1] || devices[0];
-    const deviceId = backCam ? backCam.deviceId : undefined;
+    // Use navigator.mediaDevices directly — works in all modern mobile browsers
+    // Request environment (back) camera explicitly
+    const constraints = {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const video = document.getElementById('camVideo');
+    video.srcObject = stream;
+    await video.play();
 
     document.getElementById('camStatus').textContent = 'Point at barcode…';
-    await codeReader.decodeFromVideoDevice(deviceId, 'camVideo', (result, err) => {
+
+    // Use decodeFromStream on the live video element
+    codeReader.decodeFromStream(stream, video, (result, err) => {
       if (!cameraActive) return;
       if (result) {
         const code = result.getText();
         document.getElementById('camStatus').textContent = '✓ Scanned: ' + code;
         document.getElementById('camStatus').className = 'cam-status found';
-        // Vibrate if supported
         if (navigator.vibrate) navigator.vibrate(80);
         setTimeout(() => {
           closeCamera();
           handleScannedCode(code);
-        }, 400);
+        }, 500);
       }
+      // suppress NotFound errors — normal while scanning
     });
+
   } catch(e) {
-    document.getElementById('camStatus').textContent = 'Camera error: ' + e.message;
+    let msg = e.message;
+    if (e.name === 'NotAllowedError') msg = 'Camera permission denied. Please allow camera access and try again.';
+    if (e.name === 'NotFoundError') msg = 'No camera found on this device.';
+    document.getElementById('camStatus').textContent = msg;
     document.getElementById('camStatus').className = 'cam-status err';
   }
 }
 
 function closeCamera() {
   cameraActive = false;
-  if (codeReader) { try { codeReader.reset(); } catch(e){} codeReader = null; }
-  document.getElementById('camOverlay').classList.remove('active');
+  try { if (codeReader) { codeReader.reset(); codeReader = null; } } catch(e) {}
   const v = document.getElementById('camVideo');
-  if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; }
+  try { if (v.srcObject) { v.srcObject.getTracks().forEach(t => t.stop()); v.srcObject = null; } } catch(e) {}
+  document.getElementById('camOverlay').classList.remove('active');
 }
 
 function handleScannedCode(code) {
