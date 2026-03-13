@@ -7,7 +7,6 @@
 <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<!-- SheetJS for Excel export -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
@@ -41,6 +40,11 @@
   .slabel{font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-bottom:7px;margin-top:18px;}
   .slabel:first-child{margin-top:0;}
 
+  /* default location banner */
+  .def-loc-bar{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:var(--text-dim);}
+  .def-loc-bar strong{font-family:var(--mono);color:var(--accent);}
+  .def-loc-bar select{background:none;border:none;outline:none;color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:700;-webkit-appearance:none;appearance:none;cursor:pointer;flex:1;}
+
   .fgroup{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px;}
   .frow{display:flex;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border);gap:10px;}
   .frow:last-child{border-bottom:none;}
@@ -52,6 +56,11 @@
   .finput::placeholder{color:var(--text-muted);font-weight:400;}
   .finput::-webkit-outer-spin-button,.finput::-webkit-inner-spin-button{-webkit-appearance:none;}
   select.finput{-webkit-appearance:none;appearance:none;cursor:pointer;}
+
+  /* per-item location selector — highlighted */
+  .item-loc-row{background:var(--accent-dim);border-bottom:1px solid rgba(0,212,170,0.15);}
+  .item-loc-row .flabel{color:var(--accent);}
+  .item-loc-row select.finput{color:var(--accent);}
 
   .fbadge{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:5px;font-weight:600;flex-shrink:0;}
   .b-ok{background:var(--success-dim);color:var(--success);}
@@ -91,19 +100,22 @@
   .btn-danger{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);}
   .btn-success{background:var(--success-dim);color:var(--success);border:1px solid rgba(34,197,94,0.3);}
 
+  /* QUEUE */
   .q-empty{text-align:center;padding:40px 16px;color:var(--text-dim);font-size:14px;}
   .q-empty-icon{font-size:40px;margin-bottom:12px;opacity:0.4;}
   .q-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;}
   .q-num{font-family:var(--mono);font-size:11px;color:var(--text-dim);padding-top:2px;min-width:22px;}
   .q-info{flex:1;min-width:0;}
   .q-pc{font-family:var(--mono);font-size:14px;font-weight:700;}
-  .q-meta{font-size:11px;color:var(--text-dim);margin-top:2px;}
+  .q-meta{font-size:11px;color:var(--text-dim);margin-top:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .q-loc-badge{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-dim);padding:1px 6px;border-radius:4px;}
   .q-bin{font-family:var(--mono);font-size:12px;color:var(--accent);margin-top:3px;}
   .q-qty{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);text-align:right;}
   .q-qty-lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;}
   .q-del{background:none;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;padding:4px;line-height:1;}
   .q-del:hover{color:var(--danger);}
 
+  /* MANAGER */
   .msection{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;}
   .msection h3{font-size:13px;font-weight:600;margin-bottom:10px;}
   .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
@@ -146,7 +158,7 @@
   .hsp-val{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);}
   .hsp-lbl{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-top:1px;}
 
-  /* PIN OVERLAY */
+  /* PIN */
   .pin-overlay{display:none;position:fixed;inset:0;background:var(--bg);z-index:200;flex-direction:column;align-items:center;justify-content:center;padding:24px;}
   .pin-overlay.active{display:flex;}
   .pin-logo{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);letter-spacing:2px;margin-bottom:28px;text-align:center;}
@@ -225,23 +237,20 @@
     </div>
   </div>
 
-  <div class="slabel">Location</div>
-  <div class="fgroup">
-    <div class="frow">
-      <div class="ficon">📍</div>
-      <div class="flwrap">
-        <div class="flabel">Warehouse Location</div>
-        <select class="finput" id="fLoc" onchange="onLocChange()">
-          <option value="">— Select Location —</option>
-          <option value="BC">BC</option>
-          <option value="EE">EE</option>
-          <option value="FS">FS</option>
-          <option value="GT">GT</option>
-          <option value="NH">NH</option>
-          <option value="VP">VP</option>
-        </select>
-      </div>
-    </div>
+  <!-- Default location for session -->
+  <div class="slabel">Default Location <span style="font-weight:400;color:var(--text-muted);font-size:9px;letter-spacing:0">(pre-fills each item)</span></div>
+  <div class="def-loc-bar">
+    <span style="font-size:13px;">📍</span>
+    <span style="flex:1;font-size:12px;">Session default:</span>
+    <select id="fDefLoc" onchange="onDefLocChange()">
+      <option value="">— None —</option>
+      <option value="BC">BC</option>
+      <option value="EE">EE</option>
+      <option value="FS">FS</option>
+      <option value="GT">GT</option>
+      <option value="NH">NH</option>
+      <option value="VP">VP</option>
+    </select>
   </div>
 
   <div class="slabel">Product</div>
@@ -254,6 +263,22 @@
   </div>
 
   <div class="fgroup">
+    <!-- Per-item location — highlighted teal row, pre-filled from default -->
+    <div class="frow item-loc-row">
+      <div class="ficon" style="background:var(--accent-dim);">📍</div>
+      <div class="flwrap">
+        <div class="flabel">Item Location / Brand</div>
+        <select class="finput" id="fLoc" onchange="onItemLocChange()">
+          <option value="">— Select —</option>
+          <option value="BC">BC</option>
+          <option value="EE">EE</option>
+          <option value="FS">FS</option>
+          <option value="GT">GT</option>
+          <option value="NH">NH</option>
+          <option value="VP">VP</option>
+        </select>
+      </div>
+    </div>
     <div class="frow">
       <div class="ficon">🔍</div>
       <div class="flwrap">
@@ -346,7 +371,6 @@
     Fill in your <code>FIREBASE_CONFIG</code> at the top of the script section.
   </div>
 
-  <!-- Filters -->
   <div class="hist-filters">
     <select id="histLocFilter" onchange="loadHistory()">
       <option value="">All Locations</option>
@@ -364,14 +388,9 @@
     <input type="date" id="histDateFrom" onchange="loadHistory()" title="From date">
     <input type="date" id="histDateTo"   onchange="loadHistory()" title="To date">
   </div>
-
   <div style="display:flex;gap:8px;margin-bottom:12px;">
-    <button class="btn btn-success" style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="exportHistoryExcel()">
-      📊 Export Excel
-    </button>
-    <button class="btn btn-ghost" style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="loadHistory()">
-      🔄 Refresh
-    </button>
+    <button class="btn btn-success" style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="exportHistoryExcel()">📊 Export Excel</button>
+    <button class="btn btn-ghost"   style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="loadHistory()">🔄 Refresh</button>
   </div>
 
   <div id="histSummaryBar" class="hist-summary-bar hidden">
@@ -395,14 +414,14 @@
       <div class="stat-card"><div class="stat-val" id="sItems">0</div><div class="stat-lbl">In Queue</div></div>
       <div class="stat-card"><div class="stat-val" id="sTotal">0</div><div class="stat-lbl">Total Units</div></div>
       <div class="stat-card"><div class="stat-val" id="sNew">0</div><div class="stat-lbl">New Products</div></div>
-      <div class="stat-card"><div class="stat-val" id="sLoc">—</div><div class="stat-lbl">Location</div></div>
+      <div class="stat-card"><div class="stat-val" id="sLoc">Mixed</div><div class="stat-lbl">Mode</div></div>
     </div>
   </div>
 
   <div class="msection">
     <h3>⚙️ Apprise Import Settings</h3>
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5;">
-      Location Prefix is auto-set from your selected warehouse location.
+      Each item uses its own <strong style="color:var(--text)">Location Prefix</strong> in the export — mixed pallets are fully supported.
     </div>
     <div class="fgroup" style="margin-bottom:0">
       <div class="frow">
@@ -419,21 +438,13 @@
           <input class="finput" id="adjRemark" type="text" value="RTP Putaway" autocomplete="off">
         </div>
       </div>
-      <div class="frow">
-        <div class="ficon">📍</div>
-        <div class="flwrap">
-          <div class="flabel">Location Prefix (auto)</div>
-          <input class="finput" id="adjLocPrefix" type="text" placeholder="Set by location selection" readonly style="opacity:0.6;">
-        </div>
-      </div>
     </div>
   </div>
 
   <div class="msection">
     <h3>⬇️ Export for Apprise</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;line-height:1.5;">
-      Exports a CSV for the Apprise <strong style="color:var(--text)">Inventory Quantity Adjust Import</strong>.
-      Bin column is forced as text so values like <strong style="color:var(--text)">01-01-01</strong> won't become dates.
+      Each item exports with its own Location Prefix. Bin column is forced as text.
     </div>
     <div id="exportCount" style="text-align:center;font-size:12px;color:var(--text-dim);margin-bottom:10px;"></div>
     <button class="btn btn-primary" onclick="exportToApprise()">⬇ Download Apprise Import CSV</button>
@@ -450,10 +461,8 @@
   <div class="pin-logo">⬡ RTP SCANNER</div>
   <div class="pin-label" id="pinOverlayLabel">Enter manager PIN to continue</div>
   <div class="pin-dots" id="pinDots">
-    <div class="pin-dot" id="pd0"></div>
-    <div class="pin-dot" id="pd1"></div>
-    <div class="pin-dot" id="pd2"></div>
-    <div class="pin-dot" id="pd3"></div>
+    <div class="pin-dot" id="pd0"></div><div class="pin-dot" id="pd1"></div>
+    <div class="pin-dot" id="pd2"></div><div class="pin-dot" id="pd3"></div>
   </div>
   <div class="pin-err-msg" id="pinErrMsg"></div>
   <div class="pin-keypad">
@@ -500,7 +509,7 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════
-//  ⚙️  FIREBASE CONFIG  — paste your values here
+//  ⚙️  FIREBASE CONFIG
 // ══════════════════════════════════════════════════════════════
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyAg3wkAP60G92XLztIdrkaTttJgaBrb4wg",
@@ -512,41 +521,48 @@ const FIREBASE_CONFIG = {
 };
 // ══════════════════════════════════════════════════════════════
 
-// ── FIREBASE INIT ──
-let db = null, dbReady = false;
+const LOCATIONS = ['BC','EE','FS','GT','NH','VP'];
 
-function initFirebase() {
-  try {
+// ── FIREBASE ──
+let db=null, dbReady=false;
+function initFirebase(){
+  try{
     firebase.initializeApp(FIREBASE_CONFIG);
-    db = firebase.firestore();
-    // Simple connectivity check — no composite index needed
+    db=firebase.firestore();
     db.collection('rtp_returns').limit(1).get()
-      .then(() => { dbReady = true; setDbStatus('ok','Firebase'); })
-      .catch(e  => { setDbStatus('err','DB Error'); console.error(e); });
-  } catch(e) { setDbStatus('err','Init failed'); console.error(e); }
+      .then(()=>{ dbReady=true; setDbStatus('ok','Firebase'); })
+      .catch(e=>{ setDbStatus('err','DB Error'); console.error(e); });
+  } catch(e){ setDbStatus('err','Init failed'); console.error(e); }
 }
-
-function setDbStatus(s,l) {
-  document.getElementById('dbDot').className='db-dot '+(s==='ok'?'ok':'err');
-  document.getElementById('dbLabel').textContent=l;
-}
+function setDbStatus(s,l){ document.getElementById('dbDot').className='db-dot '+(s==='ok'?'ok':'err'); document.getElementById('dbLabel').textContent=l; }
 
 // ── PRODUCT DB ──
 const PRODUCT_DB = { "BC":{}, "EE":{}, "FS":{}, "GT":{}, "NH":{}, "VP":{} };
-const upcIndex = {};
-for (const [loc,prods] of Object.entries(PRODUCT_DB))
-  for (const [pc,info] of Object.entries(prods))
-    if (info.u) { if (!upcIndex[info.u]) upcIndex[info.u]=[]; upcIndex[info.u].push({loc,pc}); }
+const upcIndex={};
+for(const [loc,prods] of Object.entries(PRODUCT_DB))
+  for(const [pc,info] of Object.entries(prods))
+    if(info.u){ if(!upcIndex[info.u]) upcIndex[info.u]=[]; upcIndex[info.u].push({loc,pc}); }
 
 // ── STATE ──
-let currentLoc=null, queue=[], newItems=[], activityLog=[];
+let defaultLoc=null;   // session default — pre-fills item loc but doesn't lock it
+let queue=[], newItems=[], activityLog=[];
 let toastCb=null, toastTimer, codeReader=null, cameraActive=false;
-let histSearchTimer=null, histLastDoc=null, histAllDocs=[];
+let histSearchTimer=null, histAllDocs=[], histDisplayedCount=50;
 const HIST_PAGE_SIZE=50;
 
-// ══════════════════════════════════════════════
-//  🔒  PIN SYSTEM
-// ══════════════════════════════════════════════
+// ── DEFAULT LOCATION ──
+function onDefLocChange(){
+  defaultLoc=document.getElementById('fDefLoc').value||null;
+  document.getElementById('locChip').textContent=defaultLoc||'– LOC –';
+  // Pre-fill item location if item loc is currently empty
+  if(defaultLoc && !document.getElementById('fLoc').value)
+    document.getElementById('fLoc').value=defaultLoc;
+}
+
+// Item-level location change
+function onItemLocChange(){ onProductInput(); }
+
+// ── PIN SYSTEM ──
 const PIN_HASH_KEY='rtp_pin_hash', PIN_SESSION_KEY='rtp_session_ok';
 const PROTECTED=['queue','history','manager'];
 let pinBuffer='', pinPendingTab=null;
@@ -556,63 +572,42 @@ function storedHash(){ return localStorage.getItem(PIN_HASH_KEY); }
 function pinIsSet(){ return !!storedHash(); }
 function sessionOk(){ return sessionStorage.getItem(PIN_SESSION_KEY)==='1'; }
 function grantSession(){ sessionStorage.setItem(PIN_SESSION_KEY,'1'); }
-
 function refreshPinCard(){
   const set=pinIsSet();
   document.getElementById('pinStatusText').textContent=set?'Active — Queue, History & Manager are protected':'No PIN set — those tabs are open to everyone';
   document.getElementById('pinActionBtn').textContent=set?'Change PIN':'Set PIN';
 }
-
-function openPinOverlay(forTab,label){
-  pinPendingTab=forTab; pinBuffer=''; renderPinDots();
-  document.getElementById('pinErrMsg').textContent='';
-  document.getElementById('pinOverlayLabel').textContent=label||'Enter manager PIN to continue';
-  document.getElementById('pinOverlay').classList.add('active');
-}
+function openPinOverlay(forTab,label){ pinPendingTab=forTab; pinBuffer=''; renderPinDots(); document.getElementById('pinErrMsg').textContent=''; document.getElementById('pinOverlayLabel').textContent=label||'Enter manager PIN to continue'; document.getElementById('pinOverlay').classList.add('active'); }
 function closePinOverlay(){ document.getElementById('pinOverlay').classList.remove('active'); pinBuffer=''; }
 function pinCancel(){ closePinOverlay(); pinPendingTab=null; document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',i===0)); }
-
 function pinKey(d){ if(pinBuffer.length>=4) return; pinBuffer+=d; renderPinDots(); if(pinBuffer.length===4) setTimeout(verifyPin,130); }
 function pinBackspace(){ pinBuffer=pinBuffer.slice(0,-1); renderPinDots(); document.getElementById('pinErrMsg').textContent=''; }
 function renderPinDots(state){ for(let i=0;i<4;i++){ const d=document.getElementById('pd'+i); d.className='pin-dot'; if(state==='err') d.classList.add('err'); else if(i<pinBuffer.length) d.classList.add('filled'); } }
-
-function verifyPin(){
-  if(hashPin(pinBuffer)===storedHash()){ grantSession(); closePinOverlay(); const dest=pinPendingTab; pinPendingTab=null; dest==='__setup__'?showPinSetupForm('Enter new 4-digit PIN:'):reallySwitch(dest); }
-  else{ renderPinDots('err'); document.getElementById('pinErrMsg').textContent='Incorrect PIN — try again'; document.getElementById('pinDots').classList.add('pin-shake'); setTimeout(()=>{ document.getElementById('pinDots').classList.remove('pin-shake'); pinBuffer=''; renderPinDots(); },400); }
-}
-
+function verifyPin(){ if(hashPin(pinBuffer)===storedHash()){ grantSession(); closePinOverlay(); const dest=pinPendingTab; pinPendingTab=null; dest==='__setup__'?showPinSetupForm('Enter new 4-digit PIN:'):reallySwitch(dest); } else{ renderPinDots('err'); document.getElementById('pinErrMsg').textContent='Incorrect PIN — try again'; document.getElementById('pinDots').classList.add('pin-shake'); setTimeout(()=>{ document.getElementById('pinDots').classList.remove('pin-shake'); pinBuffer=''; renderPinDots(); },400); } }
 function onPinActionClick(){ if(pinIsSet()&&!sessionOk()){ openPinOverlay('__setup__','Verify current PIN to change it'); return; } showPinSetupForm(pinIsSet()?'Enter new 4-digit PIN:':'Set a 4-digit PIN:'); }
 function showPinSetupForm(label){ document.getElementById('pinSetupLabel').textContent=label; document.getElementById('pinSetupInput').value=''; document.getElementById('pinSetupErr').textContent=''; document.getElementById('pinSetupWrap').classList.remove('hidden'); document.getElementById('pinSetupInput').focus(); }
 function hidePinSetup(){ document.getElementById('pinSetupWrap').classList.add('hidden'); }
 function savePin(){ const val=document.getElementById('pinSetupInput').value.trim(); if(!/^\d{4}$/.test(val)){ document.getElementById('pinSetupErr').textContent='Must be exactly 4 digits.'; return; } localStorage.setItem(PIN_HASH_KEY,hashPin(val)); grantSession(); hidePinSetup(); refreshPinCard(); showToast('ok','PIN Saved','Queue, History & Manager now require your PIN.'); }
 
 // ── TABS ──
-function switchTab(tab){
-  if(PROTECTED.includes(tab)&&pinIsSet()&&!sessionOk()){ openPinOverlay(tab); return; }
-  reallySwitch(tab);
-}
+function switchTab(tab){ if(PROTECTED.includes(tab)&&pinIsSet()&&!sessionOk()){ openPinOverlay(tab); return; } reallySwitch(tab); }
 function reallySwitch(tab){
   ['scan','queue','history','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','manager'][i]===tab));
   if(tab==='manager') updateManagerUI();
-  if(tab==='history'){ if(currentLoc) document.getElementById('histLocFilter').value=currentLoc; loadHistory(); }
+  if(tab==='history') loadHistory();
 }
 
-// ── LOCATION ──
-function onLocChange(){
-  currentLoc=document.getElementById('fLoc').value||null;
-  document.getElementById('locChip').textContent=currentLoc||'– LOC –';
-  document.getElementById('adjLocPrefix').value=currentLoc||'';
-  onProductInput();
-}
+// ── PRODUCT LOOKUP (uses item-level location) ──
+function getItemLoc(){ return document.getElementById('fLoc').value||null; }
 
-// ── PRODUCT LOOKUP ──
 function lookupProduct(val){
-  if(!currentLoc||!val) return null;
-  const v=val.trim(), locData=PRODUCT_DB[currentLoc]; if(!locData) return null;
+  const itemLoc=getItemLoc();
+  if(!itemLoc||!val) return null;
+  const v=val.trim(), locData=PRODUCT_DB[itemLoc]; if(!locData) return null;
   const up=v.toUpperCase();
   for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {pc,...info,isNew:false};
-  const hits=upcIndex[v]; if(hits){ const h=hits.find(x=>x.loc===currentLoc); if(h) return {pc:h.pc,...locData[h.pc],isNew:false}; }
+  const hits=upcIndex[v]; if(hits){ const h=hits.find(x=>x.loc===itemLoc); if(h) return {pc:h.pc,...locData[h.pc],isNew:false}; }
   return null;
 }
 
@@ -630,7 +625,6 @@ function focusBin(){ document.getElementById('fBin').focus(); }
 
 // ── CAMERA ──
 async function openCamera(){
-  if(!currentLoc){ showToast('err','No Location','Select a location first.'); return; }
   document.getElementById('camOverlay').classList.add('active');
   document.getElementById('camStatus').textContent='Initializing camera…';
   document.getElementById('camStatus').className='cam-status';
@@ -657,50 +651,41 @@ async function openCamera(){
     document.getElementById('camStatus').className='cam-status err';
   }
 }
-
-function closeCamera(){
-  cameraActive=false;
-  try{ if(codeReader){ codeReader.reset(); codeReader=null; } } catch(e){}
-  const v=document.getElementById('camVideo');
-  try{ if(v.srcObject){ v.srcObject.getTracks().forEach(t=>t.stop()); v.srcObject=null; } } catch(e){}
-  document.getElementById('camOverlay').classList.remove('active');
-}
-
-function handleScannedCode(code){
-  document.getElementById('fProduct').value=code; onProductInput();
-  const r=lookupProduct(code); if(r&&r.b) document.getElementById('fBin').value=r.b;
-  focusQty(); showToast('ok','Barcode Scanned',code);
-}
+function closeCamera(){ cameraActive=false; try{ if(codeReader){ codeReader.reset(); codeReader=null; } } catch(e){} const v=document.getElementById('camVideo'); try{ if(v.srcObject){ v.srcObject.getTracks().forEach(t=>t.stop()); v.srcObject=null; } } catch(e){} document.getElementById('camOverlay').classList.remove('active'); }
+function handleScannedCode(code){ document.getElementById('fProduct').value=code; onProductInput(); const r=lookupProduct(code); if(r&&r.b) document.getElementById('fBin').value=r.b; focusQty(); showToast('ok','Barcode Scanned',code); }
 
 // ── ADD TO QUEUE ──
 function addToQueue(){
-  if(!currentLoc){ showToast('err','No Location','Select a location first.'); return; }
   const name=document.getElementById('fName').value.trim();
-  if(!name){ showToast('err','Missing Name','Enter your name before scanning.'); return; }
+  const itemLoc=getItemLoc();
   const rawProd=document.getElementById('fProduct').value.trim();
   const qty=parseInt(document.getElementById('fQty').value);
   const bin=document.getElementById('fBin').value.trim();
+  if(!name){ showToast('err','Missing Name','Enter your name before scanning.'); return; }
+  if(!itemLoc){ showToast('err','No Location','Select this item\'s location/brand.'); return; }
   if(!rawProd){ showToast('err','Missing Product','Enter or scan a product code.'); return; }
   if(!qty||qty<1){ showToast('err','Invalid Qty','Enter a quantity ≥ 1.'); return; }
   if(!bin){ showToast('err','Missing Bin','Enter a bin location.'); return; }
   const r=lookupProduct(rawProd);
-  if(!r){ showToast('warn','Product Not Found',`"${rawProd}" not in ${currentLoc}. Correct?`,true,()=>commitItem(makeItem(rawProd,qty,bin,true,name))); return; }
-  commitItem(makeItem(r.pc,qty,bin,false,name));
+  if(!r){ showToast('warn','Product Not Found',`"${rawProd}" not in ${itemLoc}. Correct?`,true,()=>commitItem(makeItem(rawProd,qty,bin,itemLoc,true,name))); return; }
+  commitItem(makeItem(r.pc,qty,bin,itemLoc,false,name));
 }
 
-function makeItem(pc,qty,bin,isNew,name){
-  return {id:Date.now()+Math.random(),pc,qty,bin,loc:currentLoc,isNew,name:name||'',time:new Date()};
+function makeItem(pc,qty,bin,loc,isNew,name){
+  return {id:Date.now()+Math.random(),pc,qty,bin,loc,isNew,name:name||'',time:new Date()};
 }
 
 async function commitItem(item){
   queue.push(item);
   if(item.isNew){ newItems.push(item); showToast('warn','⚠ New Item Flagged',`"${item.pc}" not in DB.`); updateNewAlerts(); }
-  else showToast('ok','Added to Queue',`${item.pc} × ${item.qty} → ${item.bin}`);
-  activityLog.unshift({pc:item.pc,qty:item.qty,bin:item.bin,isNew:item.isNew,name:item.name,time:item.time});
+  else showToast('ok','Added to Queue',`[${item.loc}] ${item.pc} × ${item.qty} → ${item.bin}`);
+  activityLog.unshift({pc:item.pc,qty:item.qty,bin:item.bin,loc:item.loc,isNew:item.isNew,name:item.name,time:item.time});
   if(activityLog.length>30) activityLog.pop();
-  clearForm(); updateQueueUI(); updateManagerUI();
 
-  // ── SAVE TO FIREBASE (no composite index needed — orderBy scanned_at only) ──
+  // After adding, reset item location to default and clear form
+  clearForm();
+  updateQueueUI(); updateManagerUI();
+
   if(dbReady&&db){
     try{
       const ref=await db.collection('rtp_returns').add({
@@ -715,10 +700,14 @@ async function commitItem(item){
 }
 
 function clearForm(){
-  document.getElementById('fProduct').value=''; document.getElementById('fQty').value='';
-  document.getElementById('fBin').value=''; document.getElementById('productBadge').textContent='—';
+  document.getElementById('fProduct').value='';
+  document.getElementById('fQty').value='';
+  document.getElementById('fBin').value='';
+  document.getElementById('productBadge').textContent='—';
   document.getElementById('productBadge').className='fbadge b-none';
   document.getElementById('binSuggest').classList.add('hidden');
+  // Reset item location back to default for next scan
+  document.getElementById('fLoc').value=defaultLoc||'';
   document.getElementById('fProduct').focus();
 }
 
@@ -732,7 +721,10 @@ function updateQueueUI(){
       <div class="q-num">#${i+1}</div>
       <div class="q-info">
         <div class="q-pc">${item.pc}${item.isNew?' <span style="font-size:10px;color:var(--warn)">★ NEW</span>':''}</div>
-        <div class="q-meta">${item.loc}${item.name?' · '+item.name:''}</div>
+        <div class="q-meta">
+          <span class="q-loc-badge">${item.loc}</span>
+          ${item.name?`<span>${item.name}</span>`:''}
+        </div>
         <div class="q-bin">→ ${item.bin}</div>
       </div>
       <div style="text-align:right">
@@ -742,33 +734,31 @@ function updateQueueUI(){
       <button class="q-del" onclick="removeItem(${i})">✕</button>
     </div>`).join('');
   const total=queue.reduce((s,i)=>s+i.qty,0);
-  document.getElementById('qSummary').innerHTML=`<strong>${queue.length}</strong> items · <strong>${total}</strong> total units`;
+  const locs=[...new Set(queue.map(i=>i.loc))].sort();
+  document.getElementById('qSummary').innerHTML=`<strong>${queue.length}</strong> items · <strong>${total}</strong> units · <strong style="color:var(--accent)">${locs.join(', ')}</strong>`;
 }
 
 function removeItem(idx){ queue.splice(idx,1); updateQueueUI(); updateManagerUI(); }
 function clearQueue(){ if(!confirm('Clear all items?')) return; queue=[]; updateQueueUI(); updateManagerUI(); }
 
-// ── APPRISE CSV EXPORT ──
-// Bin column uses = prefix trick to force Excel to treat it as text
+// ── APPRISE CSV (per-item location prefix, bin forced as text) ──
 async function exportToApprise(){
   if(!queue.length){ showToast('err','Queue Empty','Add items first.'); return; }
   const adjCode=document.getElementById('adjCode').value||'GenQtyAdj';
   const remark =document.getElementById('adjRemark').value||'RTP Putaway';
-  const locPfx =currentLoc||'XX';
   const rows=[['Product Code','Location Prefix','Bin','Lot','Serial Number','Unit of Measure','Quantity Adjustment','Adjustment Code','Remark']];
   for(const item of queue){
-    // Force bin as text in Excel by wrapping as ="01-01-01"
     const binCell='="'+item.bin.replace(/"/g,'""')+'"';
-    rows.push([item.pc, locPfx, binCell, '', '', 'each', item.qty, adjCode, remark]);
+    rows.push([item.pc, item.loc, binCell, '', '', 'each', item.qty, adjCode, remark]);
   }
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob), a=document.createElement('a');
   a.href=url;
   const d=new Date();
-  a.download=`Apprise_InvAdj_${locPfx}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}.csv`;
+  const locs=[...new Set(queue.map(i=>i.loc))].sort().join('-');
+  a.download=`Apprise_RTP_${locs}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}.csv`;
   a.click(); URL.revokeObjectURL(url);
-  showToast('ok','Exported!',`${queue.length} records ready for Apprise.`);
-  // Mark exported in Firebase
+  showToast('ok','Exported!',`${queue.length} items across ${[...new Set(queue.map(i=>i.loc))].length} location(s).`);
   if(dbReady&&db){
     const batch=db.batch();
     for(const item of queue) if(item.firebaseId)
@@ -777,61 +767,37 @@ async function exportToApprise(){
   }
 }
 
-// ── HISTORY LOAD (index-free: only orderBy scanned_at, filter client-side) ──
+// ── HISTORY ──
 async function loadHistory(){
-  if(!dbReady||!db){
-    document.getElementById('histContent').innerHTML=`<div class="hist-empty">⚠ Firebase not connected.</div>`; return;
-  }
-  histLastDoc=null; histAllDocs=[];
-  const loc   = document.getElementById('histLocFilter').value;
-  const srch  = document.getElementById('histSearch').value.trim().toUpperCase();
-  const from  = document.getElementById('histDateFrom').value;  // yyyy-mm-dd or ''
-  const to    = document.getElementById('histDateTo').value;
-
+  if(!dbReady||!db){ document.getElementById('histContent').innerHTML=`<div class="hist-empty">⚠ Firebase not connected.</div>`; return; }
+  histAllDocs=[]; histDisplayedCount=HIST_PAGE_SIZE;
+  const loc  =document.getElementById('histLocFilter').value;
+  const srch =document.getElementById('histSearch').value.trim().toUpperCase();
+  const from =document.getElementById('histDateFrom').value;
+  const to   =document.getElementById('histDateTo').value;
   document.getElementById('histContent').innerHTML=`<div class="hist-loading">Loading…</div>`;
   document.getElementById('histSummaryBar').classList.add('hidden');
-
   try{
-    // Only orderBy scanned_at — NO where clauses that require composite index
-    // All filtering is done client-side to avoid index errors
-    let q=db.collection('rtp_returns').orderBy('scanned_at','desc').limit(500);
-    const snap=await q.get();
+    const snap=await db.collection('rtp_returns').orderBy('scanned_at','desc').limit(500).get();
     let docs=snap.docs.map(d=>({id:d.id,...d.data()}));
-
-    // Client-side filtering
     if(loc)  docs=docs.filter(r=>r.location===loc);
     if(srch) docs=docs.filter(r=>(r.product_code||'').toUpperCase().includes(srch));
-    if(from){
-      const fromTs=new Date(from+'T00:00:00');
-      docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts>=fromTs; });
-    }
-    if(to){
-      const toTs=new Date(to+'T23:59:59');
-      docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts<=toTs; });
-    }
-
-    histAllDocs=docs; // save for Excel export
-
+    if(from){ const ft=new Date(from+'T00:00:00'); docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts>=ft; }); }
+    if(to){   const tt=new Date(to+'T23:59:59');   docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts<=tt; }); }
+    histAllDocs=docs;
     if(docs.length){
       document.getElementById('hsTotalRecords').textContent=docs.length;
       document.getElementById('hsTotalUnits').textContent=docs.reduce((s,r)=>s+(r.quantity||0),0);
       document.getElementById('hsTotalNew').textContent=docs.filter(r=>r.is_new_product).length;
       document.getElementById('histSummaryBar').classList.remove('hidden');
     }
-
-    renderHistRows(docs.slice(0,HIST_PAGE_SIZE), false, docs.length>HIST_PAGE_SIZE, HIST_PAGE_SIZE);
-  } catch(e){
-    document.getElementById('histContent').innerHTML=`<div class="hist-empty">Error: ${e.message}</div>`;
-  }
+    renderHistRows(docs.slice(0,HIST_PAGE_SIZE), docs.length>HIST_PAGE_SIZE);
+  } catch(e){ document.getElementById('histContent').innerHTML=`<div class="hist-empty">Error: ${e.message}</div>`; }
 }
 
-let histDisplayedCount=HIST_PAGE_SIZE;
-function loadMoreHistory(){
-  histDisplayedCount+=HIST_PAGE_SIZE;
-  renderHistRows(histAllDocs.slice(0,histDisplayedCount), false, histAllDocs.length>histDisplayedCount, histDisplayedCount);
-}
+function loadMoreHistory(){ histDisplayedCount+=HIST_PAGE_SIZE; renderHistRows(histAllDocs.slice(0,histDisplayedCount), histAllDocs.length>histDisplayedCount); }
 
-function renderHistRows(docs, _append, hasMore){
+function renderHistRows(docs,hasMore){
   const groups={};
   for(const row of docs){
     const ts=row.scanned_at?.toDate?row.scanned_at.toDate():new Date(row.scanned_at||Date.now());
@@ -863,46 +829,25 @@ function renderHistRows(docs, _append, hasMore){
 
 function debounceHistSearch(){ clearTimeout(histSearchTimer); histSearchTimer=setTimeout(()=>loadHistory(),400); }
 
-// ── EXCEL EXPORT FROM HISTORY ──
+// ── EXCEL EXPORT ──
 function exportHistoryExcel(){
   if(!histAllDocs.length){ showToast('err','No Data','Load history records first.'); return; }
   const rows=[['Date','Time','Location','Product Code','Bin','Quantity','Scanned By','New Product','Exported']];
   for(const r of histAllDocs){
     const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||Date.now());
-    const dateStr=ts.toLocaleDateString('en-US');
-    const timeStr=ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     rows.push([
-      dateStr, timeStr,
-      r.location||'',
-      r.product_code||'',
-      r.bin||'',          // bin handled as text via cell format below
-      r.quantity||0,
-      r.scanned_by||'',
-      r.is_new_product?'Yes':'No',
-      r.exported?'Yes':'No'
+      ts.toLocaleDateString('en-US'), ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+      r.location||'', r.product_code||'', r.bin||'', r.quantity||0,
+      r.scanned_by||'', r.is_new_product?'Yes':'No', r.exported?'Yes':'No'
     ]);
   }
-
-  const wb=XLSX.utils.book_new();
-  const ws=XLSX.utils.aoa_to_sheet(rows);
-
-  // Force Bin column (E = index 4) as text so 01-01-01 never becomes a date
+  const wb=XLSX.utils.book_new(), ws=XLSX.utils.aoa_to_sheet(rows);
   const range=XLSX.utils.decode_range(ws['!ref']);
-  for(let R=1;R<=range.e.r;R++){
-    const cellAddr=XLSX.utils.encode_cell({r:R,c:4});
-    if(ws[cellAddr]){
-      ws[cellAddr].t='s'; // force string type
-      ws[cellAddr].z='@'; // text format
-    }
-  }
-
-  // Column widths
+  for(let R=1;R<=range.e.r;R++){ const ca=XLSX.utils.encode_cell({r:R,c:4}); if(ws[ca]){ ws[ca].t='s'; ws[ca].z='@'; } }
   ws['!cols']=[{wch:12},{wch:8},{wch:10},{wch:20},{wch:12},{wch:10},{wch:16},{wch:12},{wch:10}];
-
   XLSX.utils.book_append_sheet(wb,ws,'RTP Returns');
   const d=new Date();
-  const fname=`RTP_History_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.xlsx`;
-  XLSX.writeFile(wb,fname);
+  XLSX.writeFile(wb,`RTP_History_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.xlsx`);
   showToast('ok','Excel Downloaded',`${histAllDocs.length} records exported.`);
 }
 
@@ -911,15 +856,16 @@ function updateManagerUI(){
   document.getElementById('sItems').textContent=queue.length;
   document.getElementById('sTotal').textContent=queue.reduce((s,i)=>s+i.qty,0);
   document.getElementById('sNew').textContent=queue.filter(i=>i.isNew).length;
-  document.getElementById('sLoc').textContent=currentLoc||'—';
+  const locs=[...new Set(queue.map(i=>i.loc))];
+  document.getElementById('sLoc').textContent=locs.length?locs.sort().join('/'):defaultLoc||'—';
   document.getElementById('exportCount').textContent=
-    queue.length?`${queue.length} items · ${queue.reduce((s,i)=>s+i.qty,0)} total units ready`:'No items in queue yet.';
+    queue.length?`${queue.length} items · ${queue.reduce((s,i)=>s+i.qty,0)} units · ${[...new Set(queue.map(i=>i.loc))].length} location(s)`:'No items in queue yet.';
   const log=document.getElementById('activityLog');
   if(!activityLog.length){ log.innerHTML='<div style="font-size:12px;color:var(--text-dim);">No activity yet.</div>'; return; }
   log.innerHTML=activityLog.slice(0,10).map(a=>`
     <div class="sess-item">
       <div class="sess-dot" style="${a.isNew?'background:var(--warn)':''}"></div>
-      <div class="sess-pc">${a.pc}</div>
+      <div class="sess-pc">[${a.loc}] ${a.pc}</div>
       <div class="sess-meta">×${a.qty} → ${a.bin}${a.name?' ('+a.name+')':''}</div>
       <div class="sess-time">${a.time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
     </div>`).join('');
@@ -930,8 +876,7 @@ function updateNewAlerts(){
   if(!newItems.length){ el.innerHTML=''; return; }
   el.innerHTML=`<div class="new-alert"><div class="na-icon">⚠️</div>
     <div class="na-text"><strong>${newItems.length} New Product(s) Flagged</strong>
-    Not found in DB — may need to be added in Apprise:
-    ${newItems.map(i=>`<br><span style="font-family:var(--mono);font-weight:700">${i.pc}</span>`).join('')}
+    ${newItems.map(i=>`<br><span style="font-family:var(--mono);font-weight:700">[${i.loc}] ${i.pc}</span>`).join('')}
     </div></div>`;
 }
 
