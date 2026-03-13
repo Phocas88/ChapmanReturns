@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>RTP Scanner</title>
 <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
-<!-- Firebase v10 compat (no bundler needed) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<!-- SheetJS for Excel export -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
   :root {
@@ -88,6 +89,7 @@
   .btn-primary:disabled{background:var(--text-muted);color:var(--bg);cursor:not-allowed;transform:none;}
   .btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
   .btn-danger{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);}
+  .btn-success{background:var(--success-dim);color:var(--success);border:1px solid rgba(34,197,94,0.3);}
 
   .q-empty{text-align:center;padding:40px 16px;color:var(--text-dim);font-size:14px;}
   .q-empty-icon{font-size:40px;margin-bottom:12px;opacity:0.4;}
@@ -108,21 +110,22 @@
   .stat-card{background:var(--surface2);border-radius:8px;padding:10px 12px;text-align:center;}
   .stat-val{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent);}
   .stat-lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;}
-  .hist-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;}
-  .hist-item:last-child{border-bottom:none;}
-  .hist-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;}
-  .hist-pc{font-family:var(--mono);font-weight:600;}
-  .hist-meta{color:var(--text-dim);flex:1;}
-  .hist-time{color:var(--text-muted);font-size:11px;white-space:nowrap;}
+  .sess-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;}
+  .sess-item:last-child{border-bottom:none;}
+  .sess-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+  .sess-pc{font-family:var(--mono);font-weight:600;}
+  .sess-meta{color:var(--text-dim);flex:1;}
+  .sess-time{color:var(--text-muted);font-size:11px;white-space:nowrap;}
   .new-alert{background:var(--warn-dim);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:12px 14px;margin-bottom:12px;display:flex;gap:10px;}
   .na-icon{font-size:18px;flex-shrink:0;}
   .na-text{font-size:12px;color:var(--warn);line-height:1.5;}
   .na-text strong{display:block;font-size:13px;margin-bottom:3px;}
 
   /* HISTORY */
-  .hist-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
-  .hist-filters select,.hist-filters input{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:12px;padding:7px 10px;outline:none;-webkit-appearance:none;appearance:none;flex:1;min-width:100px;}
-  .hist-filters input{flex:2;}
+  .hist-filters{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+  .hist-filters select,.hist-filters input[type=text]{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:12px;padding:7px 10px;outline:none;-webkit-appearance:none;appearance:none;flex:1;min-width:90px;}
+  .hist-date-row{display:flex;gap:8px;margin-bottom:12px;}
+  .hist-date-row input[type=date]{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:12px;padding:7px 10px;outline:none;flex:1;-webkit-appearance:none;appearance:none;color-scheme:dark;}
   .hist-date-group{background:var(--surface2);border-radius:8px;margin-bottom:10px;overflow:hidden;}
   .hist-date-label{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;color:var(--text-dim);padding:7px 12px;text-transform:uppercase;border-bottom:1px solid var(--border);}
   .hist-row{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;}
@@ -132,6 +135,7 @@
   .hist-row-bin{font-size:11px;color:var(--text-dim);flex-shrink:0;}
   .hist-row-qty{font-family:var(--mono);font-weight:700;color:var(--accent);flex-shrink:0;}
   .hist-row-time{font-size:10px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;}
+  .hist-row-who{font-size:10px;color:var(--text-dim);flex-shrink:0;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .hist-new-badge{font-family:var(--mono);font-size:9px;color:var(--warn);background:var(--warn-dim);padding:1px 5px;border-radius:3px;flex-shrink:0;}
   .hist-load-more{text-align:center;padding:12px;font-size:12px;color:var(--text-dim);cursor:pointer;}
   .hist-load-more:hover{color:var(--accent);}
@@ -142,7 +146,7 @@
   .hsp-val{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);}
   .hsp-lbl{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-top:1px;}
 
-  /* ── PIN OVERLAY ── */
+  /* PIN OVERLAY */
   .pin-overlay{display:none;position:fixed;inset:0;background:var(--bg);z-index:200;flex-direction:column;align-items:center;justify-content:center;padding:24px;}
   .pin-overlay.active{display:flex;}
   .pin-logo{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);letter-spacing:2px;margin-bottom:28px;text-align:center;}
@@ -159,8 +163,6 @@
   .pin-key.empty{background:transparent;border-color:transparent;cursor:default;}
   .pin-shake{animation:shake 0.35s ease;}
   @keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-8px);}40%{transform:translateX(8px);}60%{transform:translateX(-6px);}80%{transform:translateX(6px);}}
-
-  /* PIN section in Scan tab */
   .pin-manage-row{display:flex;align-items:center;padding:11px 14px;gap:10px;}
   .pin-setup-wrap{padding:12px 14px;border-top:1px solid var(--border);}
   .pin-setup-wrap label{font-size:11px;color:var(--text-dim);display:block;margin-bottom:8px;letter-spacing:0.5px;}
@@ -168,7 +170,6 @@
   .pin-setup-inline input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--mono);font-size:22px;font-weight:700;padding:10px 14px;outline:none;letter-spacing:8px;text-align:center;}
   .pin-setup-inline button{background:var(--accent);color:#0a0e1a;border:none;border-radius:8px;padding:10px 18px;font-family:var(--sans);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
 
-  /* TOAST */
   .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 20px;max-width:340px;width:calc(100% - 32px);z-index:500;transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 20px 40px rgba(0,0,0,0.5);}
   .toast.show{transform:translateX(-50%) translateY(0);}
   .toast-title{font-size:13px;font-weight:600;margin-bottom:4px;}
@@ -184,13 +185,11 @@
   .config-banner{background:var(--danger-dim);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:var(--danger);line-height:1.6;}
   .config-banner strong{display:block;font-size:13px;margin-bottom:4px;}
   .config-banner code{font-family:var(--mono);background:rgba(239,68,68,0.15);padding:1px 5px;border-radius:3px;font-size:11px;}
-
   .hidden{display:none!important;}
 </style>
 </head>
 <body>
 
-<!-- TOPBAR -->
 <div class="topbar">
   <div>
     <div class="topbar-logo">⬡ RTP Scanner</div>
@@ -204,7 +203,6 @@
   </div>
 </div>
 
-<!-- TABS -->
 <div class="tab-row">
   <button class="tab-btn active" onclick="switchTab('scan')">📱 Scan</button>
   <button class="tab-btn" onclick="switchTab('queue')">📋 Queue<span class="tab-lock">🔒</span></button>
@@ -214,6 +212,18 @@
 
 <!-- ═══ SCAN TAB ═══ -->
 <div id="tab-scan" class="main">
+
+  <div class="slabel">Who is scanning?</div>
+  <div class="fgroup">
+    <div class="frow">
+      <div class="ficon">👤</div>
+      <div class="flwrap">
+        <div class="flabel">Your Name</div>
+        <input class="finput" id="fName" type="text" inputmode="text"
+          placeholder="Enter your name…" autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
+    </div>
+  </div>
 
   <div class="slabel">Location</div>
   <div class="fgroup">
@@ -288,7 +298,6 @@
   <button class="btn btn-primary" onclick="addToQueue()">Add to Queue →</button>
   <button class="btn btn-ghost" onclick="clearForm()">Clear</button>
 
-  <!-- ── PIN MANAGEMENT ── -->
   <div class="slabel">Security</div>
   <div class="fgroup">
     <div class="pin-manage-row">
@@ -337,6 +346,7 @@
     Fill in your <code>FIREBASE_CONFIG</code> at the top of the script section.
   </div>
 
+  <!-- Filters -->
   <div class="hist-filters">
     <select id="histLocFilter" onchange="loadHistory()">
       <option value="">All Locations</option>
@@ -347,8 +357,21 @@
       <option value="NH">NH</option>
       <option value="VP">VP</option>
     </select>
-    <input type="text" id="histSearch" placeholder="Search product code…"
+    <input type="text" id="histSearch" placeholder="Search product…"
       oninput="debounceHistSearch()" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <div class="hist-date-row">
+    <input type="date" id="histDateFrom" onchange="loadHistory()" title="From date">
+    <input type="date" id="histDateTo"   onchange="loadHistory()" title="To date">
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <button class="btn btn-success" style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="exportHistoryExcel()">
+      📊 Export Excel
+    </button>
+    <button class="btn btn-ghost" style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="loadHistory()">
+      🔄 Refresh
+    </button>
   </div>
 
   <div id="histSummaryBar" class="hist-summary-bar hidden">
@@ -358,7 +381,7 @@
   </div>
 
   <div id="histContent">
-    <div class="hist-empty">Select a location or search to view history.</div>
+    <div class="hist-empty">Select filters above to view history.</div>
   </div>
 </div>
 
@@ -410,6 +433,7 @@
     <h3>⬇️ Export for Apprise</h3>
     <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;line-height:1.5;">
       Exports a CSV for the Apprise <strong style="color:var(--text)">Inventory Quantity Adjust Import</strong>.
+      Bin column is forced as text so values like <strong style="color:var(--text)">01-01-01</strong> won't become dates.
     </div>
     <div id="exportCount" style="text-align:center;font-size:12px;color:var(--text-dim);margin-bottom:10px;"></div>
     <button class="btn btn-primary" onclick="exportToApprise()">⬇ Download Apprise Import CSV</button>
@@ -421,7 +445,7 @@
   </div>
 </div>
 
-<!-- ═══ PIN OVERLAY ═══ -->
+<!-- PIN OVERLAY -->
 <div class="pin-overlay" id="pinOverlay">
   <div class="pin-logo">⬡ RTP SCANNER</div>
   <div class="pin-label" id="pinOverlayLabel">Enter manager PIN to continue</div>
@@ -476,250 +500,128 @@
 
 <script>
 // ══════════════════════════════════════════════════════════════
-//  ⚙️  FIREBASE SETUP INSTRUCTIONS
-//
-//  1. Go to console.firebase.google.com → Add project
-//  2. Click the </> Web icon → Register app → copy firebaseConfig
-//  3. In Firebase Console: Build → Firestore Database
-//     → Create database → Start in test mode → Choose region
-//  4. Paste your values into FIREBASE_CONFIG below
+//  ⚙️  FIREBASE CONFIG  — paste your values here
 // ══════════════════════════════════════════════════════════════
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAg3wkAP60G92XLztIdrkaTttJgaBrb4wg",
-  authDomain: "chapman-returns.firebaseapp.com",
-  projectId: "chapman-returns",
-  storageBucket: "chapman-returns.firebasestorage.app",
+  apiKey:            "AIzaSyAg3wkAP60G92XLztIdrkaTttJgaBrb4wg",
+  authDomain:        "chapman-returns.firebaseapp.com",
+  projectId:         "chapman-returns",
+  storageBucket:     "chapman-returns.firebasestorage.app",
   messagingSenderId: "167708208865",
-  appId: "1:167708208865:web:62e909798fc8ed482911a0"
+  appId:             "1:167708208865:web:62e909798fc8ed482911a0"
 };
 // ══════════════════════════════════════════════════════════════
 
 // ── FIREBASE INIT ──
-let db = null;
-let dbReady = false;
+let db = null, dbReady = false;
 
 function initFirebase() {
-  if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
-    setDbStatus('err', 'Not configured');
-    document.getElementById('histConfigWarning').classList.remove('hidden');
-    return;
-  }
   try {
     firebase.initializeApp(FIREBASE_CONFIG);
     db = firebase.firestore();
+    // Simple connectivity check — no composite index needed
     db.collection('rtp_returns').limit(1).get()
-      .then(() => { dbReady = true; setDbStatus('ok', 'Firebase'); })
-      .catch(e  => { setDbStatus('err', 'DB Error'); console.error(e); });
-  } catch(e) { setDbStatus('err', 'Init failed'); console.error(e); }
+      .then(() => { dbReady = true; setDbStatus('ok','Firebase'); })
+      .catch(e  => { setDbStatus('err','DB Error'); console.error(e); });
+  } catch(e) { setDbStatus('err','Init failed'); console.error(e); }
 }
 
-function setDbStatus(state, label) {
-  document.getElementById('dbDot').className = 'db-dot ' + (state === 'ok' ? 'ok' : 'err');
-  document.getElementById('dbLabel').textContent = label;
+function setDbStatus(s,l) {
+  document.getElementById('dbDot').className='db-dot '+(s==='ok'?'ok':'err');
+  document.getElementById('dbLabel').textContent=l;
 }
 
 // ── PRODUCT DB ──
 const PRODUCT_DB = { "BC":{}, "EE":{}, "FS":{}, "GT":{}, "NH":{}, "VP":{} };
-
-// ── UPC REVERSE INDEX ──
 const upcIndex = {};
-for (const [loc, prods] of Object.entries(PRODUCT_DB)) {
-  for (const [pc, info] of Object.entries(prods)) {
+for (const [loc,prods] of Object.entries(PRODUCT_DB))
+  for (const [pc,info] of Object.entries(prods))
     if (info.u) { if (!upcIndex[info.u]) upcIndex[info.u]=[]; upcIndex[info.u].push({loc,pc}); }
-  }
-}
 
 // ── STATE ──
-let currentLoc = null, queue = [], newItems = [], activityLog = [];
-let toastCb = null, toastTimer, codeReader = null, cameraActive = false;
-let histSearchTimer = null, histLastDoc = null;
-const HIST_PAGE_SIZE = 50;
+let currentLoc=null, queue=[], newItems=[], activityLog=[];
+let toastCb=null, toastTimer, codeReader=null, cameraActive=false;
+let histSearchTimer=null, histLastDoc=null, histAllDocs=[];
+const HIST_PAGE_SIZE=50;
 
 // ══════════════════════════════════════════════
 //  🔒  PIN SYSTEM
-//  - PIN hash stored in localStorage (persists across sessions)
-//  - Session unlock stored in sessionStorage (clears on tab close)
-//  - Protected tabs: Queue, History, Manager
 // ══════════════════════════════════════════════
-const PIN_HASH_KEY    = 'rtp_pin_hash';
-const PIN_SESSION_KEY = 'rtp_session_ok';
-const PROTECTED       = ['queue','history','manager'];
+const PIN_HASH_KEY='rtp_pin_hash', PIN_SESSION_KEY='rtp_session_ok';
+const PROTECTED=['queue','history','manager'];
+let pinBuffer='', pinPendingTab=null;
 
-let pinBuffer = '';
-let pinPendingTab = null;  // tab to navigate to after PIN, or '__setup__'
+function hashPin(p){ let h=5381; for(let i=0;i<p.length;i++) h=((h<<5)+h)^p.charCodeAt(i); return (h>>>0).toString(36); }
+function storedHash(){ return localStorage.getItem(PIN_HASH_KEY); }
+function pinIsSet(){ return !!storedHash(); }
+function sessionOk(){ return sessionStorage.getItem(PIN_SESSION_KEY)==='1'; }
+function grantSession(){ sessionStorage.setItem(PIN_SESSION_KEY,'1'); }
 
-function hashPin(p) {
-  // Lightweight non-cryptographic hash — suitable for local PIN gating
-  let h = 5381;
-  for (let i = 0; i < p.length; i++) h = ((h << 5) + h) ^ p.charCodeAt(i);
-  return (h >>> 0).toString(36);
-}
-function storedHash()       { return localStorage.getItem(PIN_HASH_KEY); }
-function pinIsSet()         { return !!storedHash(); }
-function sessionOk()        { return sessionStorage.getItem(PIN_SESSION_KEY) === '1'; }
-function grantSession()     { sessionStorage.setItem(PIN_SESSION_KEY, '1'); }
-
-// Refresh the "Security" card in the Scan tab
-function refreshPinCard() {
-  const set = pinIsSet();
-  document.getElementById('pinStatusText').textContent = set
-    ? 'Active — Queue, History & Manager are protected'
-    : 'No PIN set — those tabs are open to everyone';
-  const btn = document.getElementById('pinActionBtn');
-  btn.textContent = set ? 'Change PIN' : 'Set PIN';
+function refreshPinCard(){
+  const set=pinIsSet();
+  document.getElementById('pinStatusText').textContent=set?'Active — Queue, History & Manager are protected':'No PIN set — those tabs are open to everyone';
+  document.getElementById('pinActionBtn').textContent=set?'Change PIN':'Set PIN';
 }
 
-// ── PIN OVERLAY LOGIC ──
-function openPinOverlay(forTab, label) {
-  pinPendingTab = forTab;
-  pinBuffer = '';
-  renderPinDots();
-  document.getElementById('pinErrMsg').textContent = '';
-  document.getElementById('pinOverlayLabel').textContent = label || 'Enter manager PIN to continue';
+function openPinOverlay(forTab,label){
+  pinPendingTab=forTab; pinBuffer=''; renderPinDots();
+  document.getElementById('pinErrMsg').textContent='';
+  document.getElementById('pinOverlayLabel').textContent=label||'Enter manager PIN to continue';
   document.getElementById('pinOverlay').classList.add('active');
 }
+function closePinOverlay(){ document.getElementById('pinOverlay').classList.remove('active'); pinBuffer=''; }
+function pinCancel(){ closePinOverlay(); pinPendingTab=null; document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',i===0)); }
 
-function closePinOverlay() {
-  document.getElementById('pinOverlay').classList.remove('active');
-  pinBuffer = '';
+function pinKey(d){ if(pinBuffer.length>=4) return; pinBuffer+=d; renderPinDots(); if(pinBuffer.length===4) setTimeout(verifyPin,130); }
+function pinBackspace(){ pinBuffer=pinBuffer.slice(0,-1); renderPinDots(); document.getElementById('pinErrMsg').textContent=''; }
+function renderPinDots(state){ for(let i=0;i<4;i++){ const d=document.getElementById('pd'+i); d.className='pin-dot'; if(state==='err') d.classList.add('err'); else if(i<pinBuffer.length) d.classList.add('filled'); } }
+
+function verifyPin(){
+  if(hashPin(pinBuffer)===storedHash()){ grantSession(); closePinOverlay(); const dest=pinPendingTab; pinPendingTab=null; dest==='__setup__'?showPinSetupForm('Enter new 4-digit PIN:'):reallySwitch(dest); }
+  else{ renderPinDots('err'); document.getElementById('pinErrMsg').textContent='Incorrect PIN — try again'; document.getElementById('pinDots').classList.add('pin-shake'); setTimeout(()=>{ document.getElementById('pinDots').classList.remove('pin-shake'); pinBuffer=''; renderPinDots(); },400); }
 }
 
-function pinCancel() {
-  closePinOverlay();
-  pinPendingTab = null;
-  // Restore scan tab visually without triggering switchTab
-  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', i===0));
-}
+function onPinActionClick(){ if(pinIsSet()&&!sessionOk()){ openPinOverlay('__setup__','Verify current PIN to change it'); return; } showPinSetupForm(pinIsSet()?'Enter new 4-digit PIN:':'Set a 4-digit PIN:'); }
+function showPinSetupForm(label){ document.getElementById('pinSetupLabel').textContent=label; document.getElementById('pinSetupInput').value=''; document.getElementById('pinSetupErr').textContent=''; document.getElementById('pinSetupWrap').classList.remove('hidden'); document.getElementById('pinSetupInput').focus(); }
+function hidePinSetup(){ document.getElementById('pinSetupWrap').classList.add('hidden'); }
+function savePin(){ const val=document.getElementById('pinSetupInput').value.trim(); if(!/^\d{4}$/.test(val)){ document.getElementById('pinSetupErr').textContent='Must be exactly 4 digits.'; return; } localStorage.setItem(PIN_HASH_KEY,hashPin(val)); grantSession(); hidePinSetup(); refreshPinCard(); showToast('ok','PIN Saved','Queue, History & Manager now require your PIN.'); }
 
-function pinKey(digit) {
-  if (pinBuffer.length >= 4) return;
-  pinBuffer += digit;
-  renderPinDots();
-  if (pinBuffer.length === 4) setTimeout(verifyPin, 130);
-}
-
-function pinBackspace() {
-  pinBuffer = pinBuffer.slice(0,-1);
-  renderPinDots();
-  document.getElementById('pinErrMsg').textContent = '';
-}
-
-function renderPinDots(state) {
-  for (let i=0;i<4;i++) {
-    const d = document.getElementById('pd'+i);
-    d.className = 'pin-dot';
-    if (state === 'err')        d.classList.add('err');
-    else if (i < pinBuffer.length) d.classList.add('filled');
-  }
-}
-
-function verifyPin() {
-  if (hashPin(pinBuffer) === storedHash()) {
-    grantSession();
-    closePinOverlay();
-    const dest = pinPendingTab;
-    pinPendingTab = null;
-    if (dest === '__setup__') {
-      showPinSetupForm('Enter new 4-digit PIN:');
-    } else {
-      reallySwitch(dest);
-    }
-  } else {
-    renderPinDots('err');
-    document.getElementById('pinErrMsg').textContent = 'Incorrect PIN — try again';
-    document.getElementById('pinDots').classList.add('pin-shake');
-    setTimeout(() => {
-      document.getElementById('pinDots').classList.remove('pin-shake');
-      pinBuffer = ''; renderPinDots();
-    }, 400);
-  }
-}
-
-// ── PIN SETUP (in Scan tab) ──
-function onPinActionClick() {
-  if (pinIsSet() && !sessionOk()) {
-    // Require current PIN before letting them change it
-    openPinOverlay('__setup__', 'Verify current PIN to change it');
-    return;
-  }
-  showPinSetupForm(pinIsSet() ? 'Enter new 4-digit PIN:' : 'Set a 4-digit PIN:');
-}
-
-function showPinSetupForm(label) {
-  document.getElementById('pinSetupLabel').textContent = label;
-  document.getElementById('pinSetupInput').value = '';
-  document.getElementById('pinSetupErr').textContent = '';
-  document.getElementById('pinSetupWrap').classList.remove('hidden');
-  document.getElementById('pinSetupInput').focus();
-}
-
-function hidePinSetup() {
-  document.getElementById('pinSetupWrap').classList.add('hidden');
-}
-
-function savePin() {
-  const val = document.getElementById('pinSetupInput').value.trim();
-  if (!/^\d{4}$/.test(val)) {
-    document.getElementById('pinSetupErr').textContent = 'Must be exactly 4 digits.';
-    return;
-  }
-  localStorage.setItem(PIN_HASH_KEY, hashPin(val));
-  grantSession();
-  hidePinSetup();
-  refreshPinCard();
-  showToast('ok', 'PIN Saved', 'Queue, History & Manager now require your PIN.');
-}
-
-// ── TAB SWITCHING ──
-function switchTab(tab) {
-  if (PROTECTED.includes(tab) && pinIsSet() && !sessionOk()) {
-    openPinOverlay(tab);
-    return;
-  }
+// ── TABS ──
+function switchTab(tab){
+  if(PROTECTED.includes(tab)&&pinIsSet()&&!sessionOk()){ openPinOverlay(tab); return; }
   reallySwitch(tab);
 }
-
-function reallySwitch(tab) {
-  ['scan','queue','history','manager'].forEach(t =>
-    document.getElementById('tab-'+t).classList.toggle('hidden', t!==tab));
-  document.querySelectorAll('.tab-btn').forEach((b,i) =>
-    b.classList.toggle('active', ['scan','queue','history','manager'][i]===tab));
-  if (tab==='manager') updateManagerUI();
-  if (tab==='history') {
-    if (currentLoc) document.getElementById('histLocFilter').value = currentLoc;
-    loadHistory();
-  }
+function reallySwitch(tab){
+  ['scan','queue','history','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','manager'][i]===tab));
+  if(tab==='manager') updateManagerUI();
+  if(tab==='history'){ if(currentLoc) document.getElementById('histLocFilter').value=currentLoc; loadHistory(); }
 }
 
 // ── LOCATION ──
-function onLocChange() {
-  currentLoc = document.getElementById('fLoc').value || null;
-  document.getElementById('locChip').textContent = currentLoc || '– LOC –';
-  document.getElementById('adjLocPrefix').value  = currentLoc || '';
+function onLocChange(){
+  currentLoc=document.getElementById('fLoc').value||null;
+  document.getElementById('locChip').textContent=currentLoc||'– LOC –';
+  document.getElementById('adjLocPrefix').value=currentLoc||'';
   onProductInput();
 }
 
 // ── PRODUCT LOOKUP ──
-function lookupProduct(val) {
-  if (!currentLoc || !val) return null;
-  const v = val.trim(), locData = PRODUCT_DB[currentLoc];
-  if (!locData) return null;
-  const up = v.toUpperCase();
-  for (const [pc,info] of Object.entries(locData))
-    if (pc.toUpperCase()===up) return {pc,...info,isNew:false};
-  const hits = upcIndex[v];
-  if (hits) { const h=hits.find(x=>x.loc===currentLoc); if(h) return {pc:h.pc,...locData[h.pc],isNew:false}; }
+function lookupProduct(val){
+  if(!currentLoc||!val) return null;
+  const v=val.trim(), locData=PRODUCT_DB[currentLoc]; if(!locData) return null;
+  const up=v.toUpperCase();
+  for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {pc,...info,isNew:false};
+  const hits=upcIndex[v]; if(hits){ const h=hits.find(x=>x.loc===currentLoc); if(h) return {pc:h.pc,...locData[h.pc],isNew:false}; }
   return null;
 }
 
-function onProductInput() {
+function onProductInput(){
   const val=document.getElementById('fProduct').value, badge=document.getElementById('productBadge'), sug=document.getElementById('binSuggest');
-  if (!val) { badge.textContent='—'; badge.className='fbadge b-none'; sug.classList.add('hidden'); return; }
+  if(!val){ badge.textContent='—'; badge.className='fbadge b-none'; sug.classList.add('hidden'); return; }
   const r=lookupProduct(val);
-  if (r) {
-    badge.textContent='✓ FOUND'; badge.className='fbadge b-ok';
-    if (r.b) { document.getElementById('suggestedBinVal').textContent=r.b; sug.classList.remove('hidden'); } else sug.classList.add('hidden');
-  } else { badge.textContent='? NEW'; badge.className='fbadge b-new'; sug.classList.add('hidden'); }
+  if(r){ badge.textContent='✓ FOUND'; badge.className='fbadge b-ok'; if(r.b){ document.getElementById('suggestedBinVal').textContent=r.b; sug.classList.remove('hidden'); } else sug.classList.add('hidden'); }
+  else{ badge.textContent='? NEW'; badge.className='fbadge b-new'; sug.classList.add('hidden'); }
 }
 
 function useSuggestedBin(){ document.getElementById('fBin').value=document.getElementById('suggestedBinVal').textContent; focusQty(); }
@@ -727,92 +629,92 @@ function focusQty(){ const e=document.getElementById('fQty'); e.focus(); e.selec
 function focusBin(){ document.getElementById('fBin').focus(); }
 
 // ── CAMERA ──
-async function openCamera() {
-  if (!currentLoc) { showToast('err','No Location','Select a location first.'); return; }
+async function openCamera(){
+  if(!currentLoc){ showToast('err','No Location','Select a location first.'); return; }
   document.getElementById('camOverlay').classList.add('active');
   document.getElementById('camStatus').textContent='Initializing camera…';
   document.getElementById('camStatus').className='cam-status';
   cameraActive=true;
-  try {
-    if (typeof ZXing==='undefined') throw new Error('Scanner library not loaded.');
+  try{
+    if(typeof ZXing==='undefined') throw new Error('Scanner library not loaded.');
     codeReader=new ZXing.BrowserMultiFormatReader();
     const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
     const video=document.getElementById('camVideo'); video.srcObject=stream; await video.play();
     document.getElementById('camStatus').textContent='Point at barcode…';
     codeReader.decodeFromStream(stream,video,(result)=>{
-      if (!cameraActive||!result) return;
+      if(!cameraActive||!result) return;
       const code=result.getText();
       document.getElementById('camStatus').textContent='✓ Scanned: '+code;
       document.getElementById('camStatus').className='cam-status found';
-      if (navigator.vibrate) navigator.vibrate(80);
+      if(navigator.vibrate) navigator.vibrate(80);
       setTimeout(()=>{ closeCamera(); handleScannedCode(code); },500);
     });
-  } catch(e) {
+  } catch(e){
     let msg=e.message;
-    if (e.name==='NotAllowedError') msg='Camera permission denied.';
-    if (e.name==='NotFoundError')   msg='No camera found.';
+    if(e.name==='NotAllowedError') msg='Camera permission denied.';
+    if(e.name==='NotFoundError')   msg='No camera found.';
     document.getElementById('camStatus').textContent=msg;
     document.getElementById('camStatus').className='cam-status err';
   }
 }
 
-function closeCamera() {
+function closeCamera(){
   cameraActive=false;
-  try { if(codeReader){codeReader.reset();codeReader=null;} } catch(e){}
+  try{ if(codeReader){ codeReader.reset(); codeReader=null; } } catch(e){}
   const v=document.getElementById('camVideo');
-  try { if(v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null;} } catch(e){}
+  try{ if(v.srcObject){ v.srcObject.getTracks().forEach(t=>t.stop()); v.srcObject=null; } } catch(e){}
   document.getElementById('camOverlay').classList.remove('active');
 }
 
-function handleScannedCode(code) {
+function handleScannedCode(code){
   document.getElementById('fProduct').value=code; onProductInput();
   const r=lookupProduct(code); if(r&&r.b) document.getElementById('fBin').value=r.b;
   focusQty(); showToast('ok','Barcode Scanned',code);
 }
 
 // ── ADD TO QUEUE ──
-function addToQueue() {
-  if (!currentLoc) { showToast('err','No Location','Select a location first.'); return; }
+function addToQueue(){
+  if(!currentLoc){ showToast('err','No Location','Select a location first.'); return; }
+  const name=document.getElementById('fName').value.trim();
+  if(!name){ showToast('err','Missing Name','Enter your name before scanning.'); return; }
   const rawProd=document.getElementById('fProduct').value.trim();
   const qty=parseInt(document.getElementById('fQty').value);
   const bin=document.getElementById('fBin').value.trim();
-  if (!rawProd) { showToast('err','Missing Product','Enter or scan a product code.'); return; }
-  if (!qty||qty<1) { showToast('err','Invalid Qty','Enter a quantity ≥ 1.'); return; }
-  if (!bin) { showToast('err','Missing Bin','Enter a bin location.'); return; }
+  if(!rawProd){ showToast('err','Missing Product','Enter or scan a product code.'); return; }
+  if(!qty||qty<1){ showToast('err','Invalid Qty','Enter a quantity ≥ 1.'); return; }
+  if(!bin){ showToast('err','Missing Bin','Enter a bin location.'); return; }
   const r=lookupProduct(rawProd);
-  if (!r) {
-    showToast('warn','Product Not Found',`"${rawProd}" not in ${currentLoc}. Correct?`,true,()=>commitItem(makeItem(rawProd,qty,bin,true)));
-    return;
-  }
-  commitItem(makeItem(r.pc,qty,bin,false));
+  if(!r){ showToast('warn','Product Not Found',`"${rawProd}" not in ${currentLoc}. Correct?`,true,()=>commitItem(makeItem(rawProd,qty,bin,true,name))); return; }
+  commitItem(makeItem(r.pc,qty,bin,false,name));
 }
 
-function makeItem(pc,qty,bin,isNew) {
-  return {id:Date.now()+Math.random(),pc,qty,bin,loc:currentLoc,isNew,time:new Date()};
+function makeItem(pc,qty,bin,isNew,name){
+  return {id:Date.now()+Math.random(),pc,qty,bin,loc:currentLoc,isNew,name:name||'',time:new Date()};
 }
 
-async function commitItem(item) {
+async function commitItem(item){
   queue.push(item);
-  if (item.isNew) { newItems.push(item); showToast('warn','⚠ New Item Flagged',`"${item.pc}" not in DB.`); updateNewAlerts(); }
+  if(item.isNew){ newItems.push(item); showToast('warn','⚠ New Item Flagged',`"${item.pc}" not in DB.`); updateNewAlerts(); }
   else showToast('ok','Added to Queue',`${item.pc} × ${item.qty} → ${item.bin}`);
-  activityLog.unshift({pc:item.pc,qty:item.qty,bin:item.bin,isNew:item.isNew,time:item.time});
-  if (activityLog.length>30) activityLog.pop();
+  activityLog.unshift({pc:item.pc,qty:item.qty,bin:item.bin,isNew:item.isNew,name:item.name,time:item.time});
+  if(activityLog.length>30) activityLog.pop();
   clearForm(); updateQueueUI(); updateManagerUI();
 
-  // ── SAVE TO FIREBASE ──
-  if (dbReady && db) {
-    try {
-      const ref = await db.collection('rtp_returns').add({
-        location: item.loc, product_code: item.pc, quantity: item.qty,
-        bin: item.bin, is_new_product: item.isNew, exported: false,
-        scanned_at: firebase.firestore.FieldValue.serverTimestamp()
+  // ── SAVE TO FIREBASE (no composite index needed — orderBy scanned_at only) ──
+  if(dbReady&&db){
+    try{
+      const ref=await db.collection('rtp_returns').add({
+        location:item.loc, product_code:item.pc, quantity:item.qty,
+        bin:item.bin, is_new_product:item.isNew, exported:false,
+        scanned_by:item.name,
+        scanned_at:firebase.firestore.FieldValue.serverTimestamp()
       });
-      item.firebaseId = ref.id;
-    } catch(e) { console.error(e); showToast('warn','DB Warning','Saved locally, not to Firebase.'); }
+      item.firebaseId=ref.id;
+    } catch(e){ console.error(e); showToast('warn','DB Warning','Saved locally, not to Firebase.'); }
   }
 }
 
-function clearForm() {
+function clearForm(){
   document.getElementById('fProduct').value=''; document.getElementById('fQty').value='';
   document.getElementById('fBin').value=''; document.getElementById('productBadge').textContent='—';
   document.getElementById('productBadge').className='fbadge b-none';
@@ -821,16 +723,16 @@ function clearForm() {
 }
 
 // ── QUEUE UI ──
-function updateQueueUI() {
+function updateQueueUI(){
   const list=document.getElementById('qList'),empty=document.getElementById('qEmpty'),footer=document.getElementById('qFooter');
-  if (!queue.length) { empty.style.display='block'; list.innerHTML=''; footer.classList.add('hidden'); return; }
+  if(!queue.length){ empty.style.display='block'; list.innerHTML=''; footer.classList.add('hidden'); return; }
   empty.style.display='none'; footer.classList.remove('hidden');
   list.innerHTML=queue.map((item,i)=>`
     <div class="q-item">
       <div class="q-num">#${i+1}</div>
       <div class="q-info">
         <div class="q-pc">${item.pc}${item.isNew?' <span style="font-size:10px;color:var(--warn)">★ NEW</span>':''}</div>
-        <div class="q-meta">${item.loc}</div>
+        <div class="q-meta">${item.loc}${item.name?' · '+item.name:''}</div>
         <div class="q-bin">→ ${item.bin}</div>
       </div>
       <div style="text-align:right">
@@ -846,14 +748,19 @@ function updateQueueUI() {
 function removeItem(idx){ queue.splice(idx,1); updateQueueUI(); updateManagerUI(); }
 function clearQueue(){ if(!confirm('Clear all items?')) return; queue=[]; updateQueueUI(); updateManagerUI(); }
 
-// ── EXPORT ──
-async function exportToApprise() {
-  if (!queue.length) { showToast('err','Queue Empty','Add items first.'); return; }
+// ── APPRISE CSV EXPORT ──
+// Bin column uses = prefix trick to force Excel to treat it as text
+async function exportToApprise(){
+  if(!queue.length){ showToast('err','Queue Empty','Add items first.'); return; }
   const adjCode=document.getElementById('adjCode').value||'GenQtyAdj';
   const remark =document.getElementById('adjRemark').value||'RTP Putaway';
   const locPfx =currentLoc||'XX';
   const rows=[['Product Code','Location Prefix','Bin','Lot','Serial Number','Unit of Measure','Quantity Adjustment','Adjustment Code','Remark']];
-  for (const item of queue) rows.push([item.pc,locPfx,item.bin,'','','each',item.qty,adjCode,remark]);
+  for(const item of queue){
+    // Force bin as text in Excel by wrapping as ="01-01-01"
+    const binCell='="'+item.bin.replace(/"/g,'""')+'"';
+    rows.push([item.pc, locPfx, binCell, '', '', 'each', item.qty, adjCode, remark]);
+  }
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob), a=document.createElement('a');
   a.href=url;
@@ -861,55 +768,81 @@ async function exportToApprise() {
   a.download=`Apprise_InvAdj_${locPfx}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}.csv`;
   a.click(); URL.revokeObjectURL(url);
   showToast('ok','Exported!',`${queue.length} records ready for Apprise.`);
-  if (dbReady && db) {
+  // Mark exported in Firebase
+  if(dbReady&&db){
     const batch=db.batch();
-    for (const item of queue) if (item.firebaseId)
+    for(const item of queue) if(item.firebaseId)
       batch.update(db.collection('rtp_returns').doc(item.firebaseId),{exported:true,exported_at:firebase.firestore.FieldValue.serverTimestamp()});
     batch.commit().catch(e=>console.error(e));
   }
 }
 
-// ── HISTORY ──
-async function loadHistory() {
-  if (!dbReady||!db) {
+// ── HISTORY LOAD (index-free: only orderBy scanned_at, filter client-side) ──
+async function loadHistory(){
+  if(!dbReady||!db){
     document.getElementById('histContent').innerHTML=`<div class="hist-empty">⚠ Firebase not connected.</div>`; return;
   }
-  histLastDoc=null;
-  const loc=document.getElementById('histLocFilter').value;
-  const srch=document.getElementById('histSearch').value.trim().toUpperCase();
+  histLastDoc=null; histAllDocs=[];
+  const loc   = document.getElementById('histLocFilter').value;
+  const srch  = document.getElementById('histSearch').value.trim().toUpperCase();
+  const from  = document.getElementById('histDateFrom').value;  // yyyy-mm-dd or ''
+  const to    = document.getElementById('histDateTo').value;
+
   document.getElementById('histContent').innerHTML=`<div class="hist-loading">Loading…</div>`;
   document.getElementById('histSummaryBar').classList.add('hidden');
-  try {
-    let q=db.collection('rtp_returns').orderBy('scanned_at','desc');
-    if (loc) q=q.where('location','==',loc);
-    const snap=await q.limit(200).get();
+
+  try{
+    // Only orderBy scanned_at — NO where clauses that require composite index
+    // All filtering is done client-side to avoid index errors
+    let q=db.collection('rtp_returns').orderBy('scanned_at','desc').limit(500);
+    const snap=await q.get();
     let docs=snap.docs.map(d=>({id:d.id,...d.data()}));
-    if (srch) docs=docs.filter(r=>(r.product_code||'').toUpperCase().includes(srch));
-    if (docs.length) {
-      document.getElementById('hsTotalRecords').textContent=docs.length+(docs.length===200?'+':'');
+
+    // Client-side filtering
+    if(loc)  docs=docs.filter(r=>r.location===loc);
+    if(srch) docs=docs.filter(r=>(r.product_code||'').toUpperCase().includes(srch));
+    if(from){
+      const fromTs=new Date(from+'T00:00:00');
+      docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts>=fromTs; });
+    }
+    if(to){
+      const toTs=new Date(to+'T23:59:59');
+      docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts<=toTs; });
+    }
+
+    histAllDocs=docs; // save for Excel export
+
+    if(docs.length){
+      document.getElementById('hsTotalRecords').textContent=docs.length;
       document.getElementById('hsTotalUnits').textContent=docs.reduce((s,r)=>s+(r.quantity||0),0);
       document.getElementById('hsTotalNew').textContent=docs.filter(r=>r.is_new_product).length;
       document.getElementById('histSummaryBar').classList.remove('hidden');
     }
-    histLastDoc=snap.docs[Math.min(HIST_PAGE_SIZE,snap.docs.length)-1]||null;
-    renderHistRows(docs.slice(0,HIST_PAGE_SIZE), false, docs.length>HIST_PAGE_SIZE);
-  } catch(e) {
+
+    renderHistRows(docs.slice(0,HIST_PAGE_SIZE), false, docs.length>HIST_PAGE_SIZE, HIST_PAGE_SIZE);
+  } catch(e){
     document.getElementById('histContent').innerHTML=`<div class="hist-empty">Error: ${e.message}</div>`;
   }
 }
 
-function renderHistRows(docs, append, hasMore) {
+let histDisplayedCount=HIST_PAGE_SIZE;
+function loadMoreHistory(){
+  histDisplayedCount+=HIST_PAGE_SIZE;
+  renderHistRows(histAllDocs.slice(0,histDisplayedCount), false, histAllDocs.length>histDisplayedCount, histDisplayedCount);
+}
+
+function renderHistRows(docs, _append, hasMore){
   const groups={};
-  for (const row of docs) {
+  for(const row of docs){
     const ts=row.scanned_at?.toDate?row.scanned_at.toDate():new Date(row.scanned_at||Date.now());
     const key=ts.toLocaleDateString('en-US',{weekday:'short',year:'numeric',month:'short',day:'numeric'});
-    if (!groups[key]) groups[key]=[];
+    if(!groups[key]) groups[key]=[];
     groups[key].push({...row,_ts:ts});
   }
   let html='';
-  for (const [lbl,rows] of Object.entries(groups)) {
+  for(const [lbl,rows] of Object.entries(groups)){
     html+=`<div class="hist-date-group"><div class="hist-date-label">📅 ${lbl}</div>`;
-    for (const row of rows) {
+    for(const row of rows){
       const t=row._ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
       html+=`<div class="hist-row">
         <div class="hist-row-loc">${row.location}</div>
@@ -917,37 +850,64 @@ function renderHistRows(docs, append, hasMore) {
         ${row.is_new_product?'<div class="hist-new-badge">NEW</div>':''}
         <div class="hist-row-bin">${row.bin}</div>
         <div class="hist-row-qty">×${row.quantity}</div>
+        ${row.scanned_by?`<div class="hist-row-who">${row.scanned_by}</div>`:''}
         <div class="hist-row-time">${t}</div>
       </div>`;
     }
     html+=`</div>`;
   }
-  if (hasMore) html+=`<div class="hist-load-more" onclick="loadMoreHistory()">Load more ↓</div>`;
-  if (!docs.length) html=`<div class="hist-empty">No records found.</div>`;
-  if (append) { const lm=document.querySelector('.hist-load-more'); if(lm) lm.outerHTML=html; else document.getElementById('histContent').insertAdjacentHTML('beforeend',html); }
-  else document.getElementById('histContent').innerHTML=html;
+  if(hasMore) html+=`<div class="hist-load-more" onclick="loadMoreHistory()">Load more ↓</div>`;
+  if(!docs.length) html=`<div class="hist-empty">No records found for the selected filters.</div>`;
+  document.getElementById('histContent').innerHTML=html;
 }
 
-async function loadMoreHistory() {
-  if (!histLastDoc||!db) return;
-  const loc=document.getElementById('histLocFilter').value;
-  const srch=document.getElementById('histSearch').value.trim().toUpperCase();
-  let q=db.collection('rtp_returns').orderBy('scanned_at','desc').startAfter(histLastDoc).limit(HIST_PAGE_SIZE);
-  if (loc) q=q.where('location','==',loc);
-  const snap=await q.get();
-  let docs=snap.docs.map(d=>({id:d.id,...d.data()}));
-  if (srch) docs=docs.filter(r=>(r.product_code||'').toUpperCase().includes(srch));
-  histLastDoc=snap.docs[snap.docs.length-1]||null;
-  renderHistRows(docs, true, snap.docs.length===HIST_PAGE_SIZE);
-}
+function debounceHistSearch(){ clearTimeout(histSearchTimer); histSearchTimer=setTimeout(()=>loadHistory(),400); }
 
-function debounceHistSearch() {
-  clearTimeout(histSearchTimer);
-  histSearchTimer=setTimeout(()=>loadHistory(),400);
+// ── EXCEL EXPORT FROM HISTORY ──
+function exportHistoryExcel(){
+  if(!histAllDocs.length){ showToast('err','No Data','Load history records first.'); return; }
+  const rows=[['Date','Time','Location','Product Code','Bin','Quantity','Scanned By','New Product','Exported']];
+  for(const r of histAllDocs){
+    const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||Date.now());
+    const dateStr=ts.toLocaleDateString('en-US');
+    const timeStr=ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    rows.push([
+      dateStr, timeStr,
+      r.location||'',
+      r.product_code||'',
+      r.bin||'',          // bin handled as text via cell format below
+      r.quantity||0,
+      r.scanned_by||'',
+      r.is_new_product?'Yes':'No',
+      r.exported?'Yes':'No'
+    ]);
+  }
+
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+
+  // Force Bin column (E = index 4) as text so 01-01-01 never becomes a date
+  const range=XLSX.utils.decode_range(ws['!ref']);
+  for(let R=1;R<=range.e.r;R++){
+    const cellAddr=XLSX.utils.encode_cell({r:R,c:4});
+    if(ws[cellAddr]){
+      ws[cellAddr].t='s'; // force string type
+      ws[cellAddr].z='@'; // text format
+    }
+  }
+
+  // Column widths
+  ws['!cols']=[{wch:12},{wch:8},{wch:10},{wch:20},{wch:12},{wch:10},{wch:16},{wch:12},{wch:10}];
+
+  XLSX.utils.book_append_sheet(wb,ws,'RTP Returns');
+  const d=new Date();
+  const fname=`RTP_History_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.xlsx`;
+  XLSX.writeFile(wb,fname);
+  showToast('ok','Excel Downloaded',`${histAllDocs.length} records exported.`);
 }
 
 // ── MANAGER UI ──
-function updateManagerUI() {
+function updateManagerUI(){
   document.getElementById('sItems').textContent=queue.length;
   document.getElementById('sTotal').textContent=queue.reduce((s,i)=>s+i.qty,0);
   document.getElementById('sNew').textContent=queue.filter(i=>i.isNew).length;
@@ -955,19 +915,19 @@ function updateManagerUI() {
   document.getElementById('exportCount').textContent=
     queue.length?`${queue.length} items · ${queue.reduce((s,i)=>s+i.qty,0)} total units ready`:'No items in queue yet.';
   const log=document.getElementById('activityLog');
-  if (!activityLog.length) { log.innerHTML='<div style="font-size:12px;color:var(--text-dim);">No activity yet.</div>'; return; }
+  if(!activityLog.length){ log.innerHTML='<div style="font-size:12px;color:var(--text-dim);">No activity yet.</div>'; return; }
   log.innerHTML=activityLog.slice(0,10).map(a=>`
-    <div class="hist-item">
-      <div class="hist-dot" style="${a.isNew?'background:var(--warn)':''}"></div>
-      <div class="hist-pc">${a.pc}</div>
-      <div class="hist-meta">×${a.qty} → ${a.bin}</div>
-      <div class="hist-time">${a.time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+    <div class="sess-item">
+      <div class="sess-dot" style="${a.isNew?'background:var(--warn)':''}"></div>
+      <div class="sess-pc">${a.pc}</div>
+      <div class="sess-meta">×${a.qty} → ${a.bin}${a.name?' ('+a.name+')':''}</div>
+      <div class="sess-time">${a.time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
     </div>`).join('');
 }
 
-function updateNewAlerts() {
+function updateNewAlerts(){
   const el=document.getElementById('newItemAlerts');
-  if (!newItems.length) { el.innerHTML=''; return; }
+  if(!newItems.length){ el.innerHTML=''; return; }
   el.innerHTML=`<div class="new-alert"><div class="na-icon">⚠️</div>
     <div class="na-text"><strong>${newItems.length} New Product(s) Flagged</strong>
     Not found in DB — may need to be added in Apprise:
@@ -976,16 +936,14 @@ function updateNewAlerts() {
 }
 
 // ── TOAST ──
-function showToast(type,title,msg,withActions=false,yesCb=null) {
+function showToast(type,title,msg,withActions=false,yesCb=null){
   clearTimeout(toastTimer);
   const el=document.getElementById('toast'),acts=document.getElementById('toastActions');
   document.getElementById('toastTitle').textContent=title;
   document.getElementById('toastMsg').textContent=msg;
   el.className='toast show toast-'+(type==='warn'?'warn':type==='err'?'err':'ok');
-  if (withActions) {
-    acts.classList.remove('hidden'); toastCb=yesCb;
-    document.getElementById('toastYes').onclick=()=>{dismissToast();if(toastCb)toastCb();};
-  } else { acts.classList.add('hidden'); toastCb=null; toastTimer=setTimeout(dismissToast,3200); }
+  if(withActions){ acts.classList.remove('hidden'); toastCb=yesCb; document.getElementById('toastYes').onclick=()=>{ dismissToast(); if(toastCb) toastCb(); }; }
+  else{ acts.classList.add('hidden'); toastCb=null; toastTimer=setTimeout(dismissToast,3200); }
 }
 function dismissToast(){ document.getElementById('toast').classList.remove('show'); }
 
