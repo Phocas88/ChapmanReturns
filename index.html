@@ -712,18 +712,22 @@ function clearForm(){
 }
 
 // ── QUEUE UI ──
+const LOC_OPTIONS = ['BC','EE','FS','GT','NH','VP'];
+
 function updateQueueUI(){
   const list=document.getElementById('qList'),empty=document.getElementById('qEmpty'),footer=document.getElementById('qFooter');
   if(!queue.length){ empty.style.display='block'; list.innerHTML=''; footer.classList.add('hidden'); return; }
   empty.style.display='none'; footer.classList.remove('hidden');
-  list.innerHTML=queue.map((item,i)=>`
+  list.innerHTML=queue.map((item,i)=>{
+    const opts=LOC_OPTIONS.map(l=>`<option value="${l}"${l===item.loc?' selected':''}>${l}</option>`).join('');
+    return `
     <div class="q-item">
       <div class="q-num">#${i+1}</div>
       <div class="q-info">
         <div class="q-pc">${item.pc}${item.isNew?' <span style="font-size:10px;color:var(--warn)">★ NEW</span>':''}</div>
-        <div class="q-meta">
-          <span class="q-loc-badge">${item.loc}</span>
-          ${item.name?`<span>${item.name}</span>`:''}
+        <div class="q-meta" style="align-items:center;gap:6px;">
+          <select onchange="changeItemLoc(${i},this.value)" style="background:var(--accent-dim);border:1px solid rgba(0,212,170,0.3);border-radius:4px;color:var(--accent);font-family:var(--mono);font-size:11px;font-weight:700;padding:2px 5px;outline:none;-webkit-appearance:none;appearance:none;cursor:pointer;">${opts}</select>
+          ${item.name?`<span style="font-size:11px;color:var(--text-dim)">${item.name}</span>`:''}
         </div>
         <div class="q-bin">→ ${item.bin}</div>
       </div>
@@ -732,27 +736,52 @@ function updateQueueUI(){
         <div class="q-qty-lbl">each</div>
       </div>
       <button class="q-del" onclick="removeItem(${i})">✕</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   const total=queue.reduce((s,i)=>s+i.qty,0);
   const locs=[...new Set(queue.map(i=>i.loc))].sort();
   document.getElementById('qSummary').innerHTML=`<strong>${queue.length}</strong> items · <strong>${total}</strong> units · <strong style="color:var(--accent)">${locs.join(', ')}</strong>`;
 }
 
+// Change a queued item's location on the fly (before export)
+function changeItemLoc(idx, newLoc){
+  if(queue[idx]) { queue[idx].loc = newLoc; updateManagerUI(); }
+}
+
 function removeItem(idx){ queue.splice(idx,1); updateQueueUI(); updateManagerUI(); }
 function clearQueue(){ if(!confirm('Clear all items?')) return; queue=[]; updateQueueUI(); updateManagerUI(); }
 
-// ── APPRISE CSV (per-item location prefix, bin forced as text) ──
+// ── APPRISE CSV (per-item location prefix) ──
+// Each item carries its own .loc captured at scan time — mixed pallets fully supported.
+// Bin is written as a plain quoted string; the tab-prefix trick forces Excel text type.
 async function exportToApprise(){
   if(!queue.length){ showToast('err','Queue Empty','Add items first.'); return; }
   const adjCode=document.getElementById('adjCode').value||'GenQtyAdj';
   const remark =document.getElementById('adjRemark').value||'RTP Putaway';
-  const rows=[['Product Code','Location Prefix','Bin','Lot','Serial Number','Unit of Measure','Quantity Adjustment','Adjustment Code','Remark']];
-  for(const item of queue){
-    const binCell='="'+item.bin.replace(/"/g,'""')+'"';
-    rows.push([item.pc, item.loc, binCell, '', '', 'each', item.qty, adjCode, remark]);
-  }
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob), a=document.createElement('a');
+
+  // Build raw rows — NO formula tricks, just plain values.
+  // We'll write the CSV with a BOM so Excel opens UTF-8 correctly,
+  // and prefix bin values with a tab so Excel treats them as text.
+  const header=['Product Code','Location Prefix','Bin','Lot','Serial Number','Unit of Measure','Quantity Adjustment','Adjustment Code','Remark'];
+  const dataRows = queue.map(item => [
+    item.pc,
+    item.loc,           // ← each item's own location, captured at scan time
+    '\t' + item.bin,    // tab prefix = Excel forces text, no date conversion
+    '',
+    '',
+    'each',
+    item.qty,
+    adjCode,
+    remark
+  ]);
+
+  // CSV serialiser — wrap every cell in quotes, escape inner quotes
+  function csvCell(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+  const lines = [header, ...dataRows].map(r => r.map(csvCell).join(','));
+  // UTF-8 BOM so Excel doesn't mangle special chars
+  const csv = '\uFEFF' + lines.join('\r\n');
+
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}), url=URL.createObjectURL(blob), a=document.createElement('a');
   a.href=url;
   const d=new Date();
   const locs=[...new Set(queue.map(i=>i.loc))].sort().join('-');
