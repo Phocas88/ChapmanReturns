@@ -198,6 +198,44 @@
   .config-banner strong{display:block;font-size:13px;margin-bottom:4px;}
   .config-banner code{font-family:var(--mono);background:rgba(239,68,68,0.15);padding:1px 5px;border-radius:3px;font-size:11px;}
   .hidden{display:none!important;}
+
+  /* LOGIN OVERLAY */
+  .login-overlay{display:none;position:fixed;inset:0;background:var(--bg);z-index:400;flex-direction:column;align-items:center;justify-content:center;padding:32px;}
+  .login-overlay.active{display:flex;}
+  .login-logo{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);letter-spacing:3px;margin-bottom:8px;}
+  .login-sub{font-size:12px;color:var(--text-dim);letter-spacing:1px;margin-bottom:36px;}
+  .login-field{width:100%;max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-family:var(--sans);font-size:16px;color:var(--text);outline:none;margin-bottom:12px;}
+  .login-field:focus{border-color:var(--accent);}
+  .login-btn{width:100%;max-width:300px;background:var(--accent);color:#0a0e1a;border:none;border-radius:10px;padding:14px;font-family:var(--sans);font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.3px;}
+  .login-err{font-size:12px;color:var(--danger);min-height:18px;margin-bottom:8px;text-align:center;}
+
+  /* LOGOUT BTN in topbar */
+  .logout-btn{background:none;border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:11px;font-weight:600;padding:4px 10px;cursor:pointer;font-family:var(--sans);}
+  .logout-btn:hover{border-color:var(--danger);color:var(--danger);}
+
+  /* RED WARNING BANNER for unknown product */
+  .unknown-banner{background:var(--danger-dim);border:2px solid var(--danger);border-radius:10px;padding:14px 16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;}
+  .unknown-banner-title{font-size:14px;font-weight:700;color:var(--danger);display:flex;align-items:center;gap:8px;}
+  .unknown-banner-msg{font-size:12px;color:var(--text);line-height:1.5;}
+  .unknown-banner-btns{display:flex;gap:8px;margin-top:4px;}
+  .unknown-banner-btns button{flex:1;padding:9px;border-radius:8px;border:none;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;}
+  .ub-yes{background:var(--danger);color:#fff;}
+  .ub-no{background:var(--surface2);color:var(--text);border:1px solid var(--border)!important;}
+
+  /* SCANNER INPUT BAR (USB/Bluetooth scanner) */
+  .scanner-input-bar{display:flex;gap:8px;margin-bottom:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;align-items:center;}
+  .scanner-input-bar input{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:var(--mono);font-size:15px;font-weight:600;}
+  .scanner-input-bar input::placeholder{color:var(--text-muted);font-weight:400;font-size:13px;}
+  .sib-icon{font-size:18px;flex-shrink:0;}
+  .sib-label{font-size:10px;color:var(--text-dim);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:1px;}
+
+  /* EXPORT LOG */
+  .exp-log-item{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px;}
+  .exp-log-item:last-child{border-bottom:none;}
+  .exp-log-num{font-family:var(--mono);font-size:11px;color:var(--accent);min-width:28px;padding-top:1px;}
+  .exp-log-info{flex:1;}
+  .exp-log-ts{font-size:10px;color:var(--text-muted);margin-top:2px;}
+  .exp-warn-badge{font-family:var(--mono);font-size:10px;background:var(--warn-dim);color:var(--warn);padding:2px 6px;border-radius:4px;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -212,6 +250,7 @@
       <span class="db-dot" id="dbDot"></span><span id="dbLabel">DB</span>
     </span>
     <div class="loc-chip" id="locChip">– LOC –</div>
+    <button class="logout-btn hidden" id="logoutBtn" onclick="doLogout()">⏏ Logout</button>
   </div>
 </div>
 
@@ -225,49 +264,45 @@
 <!-- ═══ SCAN TAB ═══ -->
 <div id="tab-scan" class="main">
 
-  <div class="slabel">Who is scanning?</div>
-  <div class="fgroup">
-    <div class="frow">
-      <div class="ficon">👤</div>
-      <div class="flwrap">
-        <div class="flabel">Your Name</div>
-        <input class="finput" id="fName" type="text" inputmode="text"
-          placeholder="Enter your name…" autocomplete="off" autocorrect="off" spellcheck="false">
-      </div>
+  <!-- Unknown Product Red Warning Banner (hidden by default) -->
+  <div id="unknownBanner" class="unknown-banner hidden">
+    <div class="unknown-banner-title">🚨 Product Not Found</div>
+    <div class="unknown-banner-msg" id="unknownBannerMsg">This product code is not in the database. Are you sure it's correct?</div>
+    <div class="unknown-banner-btns">
+      <button class="ub-yes" onclick="confirmUnknownProduct()">Yes, Add Anyway</button>
+      <button class="ub-no" onclick="dismissUnknownBanner()">No, Re-check</button>
     </div>
   </div>
 
-  <!-- Default location for session -->
-  <div class="slabel">Default Location <span style="font-weight:400;color:var(--text-muted);font-size:9px;letter-spacing:0">(pre-fills each item)</span></div>
-  <div class="def-loc-bar">
-    <span style="font-size:13px;">📍</span>
-    <span style="flex:1;font-size:12px;">Session default:</span>
-    <select id="fDefLoc" onchange="onDefLocChange()">
-      <option value="">— None —</option>
-      <option value="BC">BC</option>
-      <option value="EE">EE</option>
-      <option value="FS">FS</option>
-      <option value="GT">GT</option>
-      <option value="NH">NH</option>
-      <option value="VP">VP</option>
-    </select>
-  </div>
-
   <div class="slabel">Product</div>
+
+  <!-- Camera scanner trigger -->
   <div class="scan-trigger" onclick="openCamera()">
     <div class="scan-trigger-icon">📷</div>
     <div>
-      <div class="scan-trigger-text">Scan Barcode</div>
+      <div class="scan-trigger-text">Scan with Camera</div>
       <div class="scan-trigger-sub">Tap to open camera scanner</div>
     </div>
   </div>
 
+  <!-- USB / Bluetooth scanner input bar -->
+  <div class="scanner-input-bar">
+    <span class="sib-icon">🔌</span>
+    <div style="flex:1">
+      <div class="sib-label">USB / Bluetooth Scanner</div>
+      <input id="fScannerInput" type="text" inputmode="text"
+        placeholder="Scan here with hardware scanner…"
+        autocomplete="off" autocorrect="off" spellcheck="false"
+        onkeydown="onHardwareScannerKey(event)">
+    </div>
+  </div>
+
   <div class="fgroup">
-    <!-- Per-item location — highlighted teal row, pre-filled from default -->
+    <!-- Per-item location — auto-detected from DB, user can override -->
     <div class="frow item-loc-row">
       <div class="ficon" style="background:var(--accent-dim);">📍</div>
       <div class="flwrap">
-        <div class="flabel">Item Location / Brand</div>
+        <div class="flabel">Location / Brand <span style="font-size:9px;color:var(--accent);opacity:0.7;">(auto-detected)</span></div>
         <select class="finput" id="fLoc" onchange="onItemLocChange()">
           <option value="">— Select —</option>
           <option value="BC">BC</option>
@@ -451,9 +486,28 @@
   </div>
 
   <div class="msection">
+    <h3>🗂 Export History Log</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.5;">
+      Each Apprise CSV download is recorded here. Re-printing a previously exported queue requires PIN override.
+    </div>
+    <div id="exportLogList"><div style="font-size:12px;color:var(--text-dim);">No exports yet.</div></div>
+  </div>
+
+  <div class="msection">
     <h3>🕒 Session Activity</h3>
     <div id="activityLog"><div style="font-size:12px;color:var(--text-dim);">No activity yet.</div></div>
   </div>
+</div>
+
+<!-- LOGIN OVERLAY -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-logo">⬡ RTP SCANNER</div>
+  <div class="login-sub">Returns Transfer Pallet · Putaway</div>
+  <input class="login-field" id="loginName" type="text" inputmode="text"
+    placeholder="Your name…" autocomplete="off" autocorrect="off" spellcheck="false"
+    onkeydown="if(event.key==='Enter')doLogin()">
+  <div class="login-err" id="loginErr"></div>
+  <button class="login-btn" onclick="doLogin()">Sign In →</button>
 </div>
 
 <!-- PIN OVERLAY -->
@@ -544,28 +598,147 @@ for(const [loc,prods] of Object.entries(PRODUCT_DB))
     if(info.u){ if(!upcIndex[info.u]) upcIndex[info.u]=[]; upcIndex[info.u].push({loc,pc}); }
 
 // ── STATE ──
-let defaultLoc=null;   // session default — pre-fills item loc but doesn't lock it
+let currentUser=null; // logged-in user name
 let queue=[], newItems=[], activityLog=[];
 let toastCb=null, toastTimer, codeReader=null, cameraActive=false;
 let histSearchTimer=null, histAllDocs=[], histDisplayedCount=50;
 const HIST_PAGE_SIZE=50;
+let exportLog=[]; // [{id, timestamp, items, qty, locs, filename}]
+let pendingUnknownItem=null; // item waiting for "yes, add anyway"
 
-// ── DEFAULT LOCATION ──
-function onDefLocChange(){
-  defaultLoc=document.getElementById('fDefLoc').value||null;
-  document.getElementById('locChip').textContent=defaultLoc||'– LOC –';
-  // Pre-fill item location if item loc is currently empty
-  if(defaultLoc && !document.getElementById('fLoc').value)
-    document.getElementById('fLoc').value=defaultLoc;
+// ── LOGIN / LOGOUT ──
+const LOGIN_KEY='rtp_user_name';
+function initLogin(){
+  const saved=localStorage.getItem(LOGIN_KEY);
+  if(saved){ currentUser=saved; onLoggedIn(); }
+  else{ document.getElementById('loginOverlay').classList.add('active'); setTimeout(()=>document.getElementById('loginName').focus(),200); }
+}
+function doLogin(){
+  const name=document.getElementById('loginName').value.trim();
+  if(!name){ document.getElementById('loginErr').textContent='Please enter your name to continue.'; return; }
+  currentUser=name;
+  localStorage.setItem(LOGIN_KEY,name);
+  document.getElementById('loginErr').textContent='';
+  document.getElementById('loginOverlay').classList.remove('active');
+  onLoggedIn();
+}
+function onLoggedIn(){
+  document.getElementById('logoutBtn').classList.remove('hidden');
+  document.getElementById('locChip').textContent='👤 '+currentUser;
+}
+function doLogout(){
+  if(!confirm('Sign out as '+currentUser+'?')) return;
+  localStorage.removeItem(LOGIN_KEY);
+  currentUser=null;
+  document.getElementById('logoutBtn').classList.add('hidden');
+  document.getElementById('locChip').textContent='– LOC –';
+  document.getElementById('loginName').value='';
+  document.getElementById('loginErr').textContent='';
+  document.getElementById('loginOverlay').classList.add('active');
+  // close pin session
+  sessionStorage.removeItem('rtp_session_ok');
+  setTimeout(()=>document.getElementById('loginName').focus(),200);
 }
 
-// Item-level location change
+// ── AUTO-DETECT LOCATION FROM DB ──
+// Returns {loc, pc, ...info} if found in any location, or null
+function lookupAcrossAllLocs(val){
+  if(!val) return null;
+  const v=val.trim(), up=v.toUpperCase();
+  // Try each location
+  for(const loc of LOCATIONS){
+    const locData=PRODUCT_DB[loc]; if(!locData) continue;
+    for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {loc,pc,...info,isNew:false};
+  }
+  // Try UPC index
+  const hits=upcIndex[v];
+  if(hits&&hits.length){
+    const h=hits[0]; const locData=PRODUCT_DB[h.loc];
+    return {loc:h.loc,pc:h.pc,...locData[h.pc],isNew:false};
+  }
+  return null;
+}
+
+function lookupProduct(val){
+  const itemLoc=getItemLoc();
+  if(!val) return null;
+  const v=val.trim(), up=v.toUpperCase();
+  // If location selected, look there first
+  if(itemLoc){
+    const locData=PRODUCT_DB[itemLoc]; if(locData){
+      for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {pc,...info,isNew:false};
+      const hits=upcIndex[v]; if(hits){ const h=hits.find(x=>x.loc===itemLoc); if(h) return {pc:h.pc,...locData[h.pc],isNew:false}; }
+    }
+  }
+  // Fall back to all locations
+  return lookupAcrossAllLocs(val);
+}
+
+function onProductInput(){
+  const val=document.getElementById('fProduct').value;
+  const badge=document.getElementById('productBadge'), sug=document.getElementById('binSuggest');
+  dismissUnknownBanner();
+  if(!val){ badge.textContent='—'; badge.className='fbadge b-none'; sug.classList.add('hidden'); return; }
+  const r=lookupProduct(val);
+  if(r){
+    badge.textContent='✓ FOUND'; badge.className='fbadge b-ok';
+    // Auto-select location if found in DB and location not manually set
+    autoSetLocation(r.loc);
+    if(r.b){ document.getElementById('suggestedBinVal').textContent=r.b; sug.classList.remove('hidden'); }
+    else sug.classList.add('hidden');
+  } else{
+    badge.textContent='? NEW'; badge.className='fbadge b-new'; sug.classList.add('hidden');
+  }
+}
+
+function autoSetLocation(loc){
+  const sel=document.getElementById('fLoc');
+  if(loc && !sel.value) { sel.value=loc; updateLocChip(loc); }
+  else if(loc && sel.value!==loc){
+    // Suggest but don't force — highlight chip to indicate mismatch
+    // We auto-correct if user hasn't manually changed it
+    sel.value=loc; updateLocChip(loc);
+  }
+}
+function updateLocChip(loc){ document.getElementById('locChip').textContent=loc?('👤 '+(currentUser||'')+(loc?' · '+loc:'')):'👤 '+(currentUser||''); }
+function getItemLoc(){ return document.getElementById('fLoc').value||null; }
 function onItemLocChange(){ onProductInput(); }
+
+// ── HARDWARE / USB SCANNER ──
+let scannerBuffer='', scannerTimer=null;
+function onHardwareScannerKey(e){
+  if(e.key==='Enter'){
+    const val=scannerBuffer.trim()||document.getElementById('fScannerInput').value.trim();
+    scannerBuffer='';
+    document.getElementById('fScannerInput').value='';
+    if(val) handleScannedCode(val);
+    e.preventDefault();
+    return;
+  }
+  // Also accept barcode via rapid keystrokes (hardware scanners send chars fast)
+  clearTimeout(scannerTimer);
+  scannerTimer=setTimeout(()=>{ scannerBuffer=''; },80);
+  scannerBuffer+=(e.key.length===1?e.key:'');
+}
+
+// ── UNKNOWN PRODUCT BANNER ──
+function showUnknownBanner(rawProd, itemLoc, itemForCommit){
+  pendingUnknownItem=itemForCommit;
+  const msg=`"${rawProd}" was not found in ${itemLoc||'any location'}. Are you sure this product code is correct?\n\nTapping "Yes, Add Anyway" will:\n• Add it to the queue as a NEW item\n• Send an alert to the Manager dashboard`;
+  document.getElementById('unknownBannerMsg').textContent=msg;
+  document.getElementById('unknownBanner').classList.remove('hidden');
+  document.getElementById('unknownBanner').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function dismissUnknownBanner(){ document.getElementById('unknownBanner').classList.add('hidden'); pendingUnknownItem=null; }
+function confirmUnknownProduct(){
+  if(pendingUnknownItem){ commitItem(pendingUnknownItem); }
+  dismissUnknownBanner();
+}
 
 // ── PIN SYSTEM ──
 const PIN_HASH_KEY='rtp_pin_hash', PIN_SESSION_KEY='rtp_session_ok';
 const PROTECTED=['queue','history','manager'];
-let pinBuffer='', pinPendingTab=null;
+let pinBuffer='', pinPendingTab=null, pinPendingCb=null;
 
 function hashPin(p){ let h=5381; for(let i=0;i<p.length;i++) h=((h<<5)+h)^p.charCodeAt(i); return (h>>>0).toString(36); }
 function storedHash(){ return localStorage.getItem(PIN_HASH_KEY); }
@@ -577,20 +750,46 @@ function refreshPinCard(){
   document.getElementById('pinStatusText').textContent=set?'Active — Queue, History & Manager are protected':'No PIN set — those tabs are open to everyone';
   document.getElementById('pinActionBtn').textContent=set?'Change PIN':'Set PIN';
 }
-function openPinOverlay(forTab,label){ pinPendingTab=forTab; pinBuffer=''; renderPinDots(); document.getElementById('pinErrMsg').textContent=''; document.getElementById('pinOverlayLabel').textContent=label||'Enter manager PIN to continue'; document.getElementById('pinOverlay').classList.add('active'); }
+function openPinOverlay(forTab,label,cb){
+  pinPendingTab=forTab; pinPendingCb=cb||null;
+  pinBuffer=''; renderPinDots();
+  document.getElementById('pinErrMsg').textContent='';
+  document.getElementById('pinOverlayLabel').textContent=label||'Enter manager PIN to continue';
+  document.getElementById('pinOverlay').classList.add('active');
+}
 function closePinOverlay(){ document.getElementById('pinOverlay').classList.remove('active'); pinBuffer=''; }
-function pinCancel(){ closePinOverlay(); pinPendingTab=null; document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',i===0)); }
+function pinCancel(){ closePinOverlay(); pinPendingTab=null; pinPendingCb=null; document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',i===0)); }
 function pinKey(d){ if(pinBuffer.length>=4) return; pinBuffer+=d; renderPinDots(); if(pinBuffer.length===4) setTimeout(verifyPin,130); }
 function pinBackspace(){ pinBuffer=pinBuffer.slice(0,-1); renderPinDots(); document.getElementById('pinErrMsg').textContent=''; }
 function renderPinDots(state){ for(let i=0;i<4;i++){ const d=document.getElementById('pd'+i); d.className='pin-dot'; if(state==='err') d.classList.add('err'); else if(i<pinBuffer.length) d.classList.add('filled'); } }
-function verifyPin(){ if(hashPin(pinBuffer)===storedHash()){ grantSession(); closePinOverlay(); const dest=pinPendingTab; pinPendingTab=null; dest==='__setup__'?showPinSetupForm('Enter new 4-digit PIN:'):reallySwitch(dest); } else{ renderPinDots('err'); document.getElementById('pinErrMsg').textContent='Incorrect PIN — try again'; document.getElementById('pinDots').classList.add('pin-shake'); setTimeout(()=>{ document.getElementById('pinDots').classList.remove('pin-shake'); pinBuffer=''; renderPinDots(); },400); } }
+function verifyPin(){
+  if(hashPin(pinBuffer)===storedHash()){
+    grantSession(); closePinOverlay();
+    const dest=pinPendingTab, cb=pinPendingCb;
+    pinPendingTab=null; pinPendingCb=null;
+    if(cb) cb();
+    else if(dest==='__setup__') showPinSetupForm('Enter new 4-digit PIN:');
+    else if(dest) reallySwitch(dest);
+  } else{
+    renderPinDots('err');
+    document.getElementById('pinErrMsg').textContent='Incorrect PIN — try again';
+    document.getElementById('pinDots').classList.add('pin-shake');
+    setTimeout(()=>{ document.getElementById('pinDots').classList.remove('pin-shake'); pinBuffer=''; renderPinDots(); },400);
+  }
+}
 function onPinActionClick(){ if(pinIsSet()&&!sessionOk()){ openPinOverlay('__setup__','Verify current PIN to change it'); return; } showPinSetupForm(pinIsSet()?'Enter new 4-digit PIN:':'Set a 4-digit PIN:'); }
 function showPinSetupForm(label){ document.getElementById('pinSetupLabel').textContent=label; document.getElementById('pinSetupInput').value=''; document.getElementById('pinSetupErr').textContent=''; document.getElementById('pinSetupWrap').classList.remove('hidden'); document.getElementById('pinSetupInput').focus(); }
 function hidePinSetup(){ document.getElementById('pinSetupWrap').classList.add('hidden'); }
 function savePin(){ const val=document.getElementById('pinSetupInput').value.trim(); if(!/^\d{4}$/.test(val)){ document.getElementById('pinSetupErr').textContent='Must be exactly 4 digits.'; return; } localStorage.setItem(PIN_HASH_KEY,hashPin(val)); grantSession(); hidePinSetup(); refreshPinCard(); showToast('ok','PIN Saved','Queue, History & Manager now require your PIN.'); }
 
-// ── TABS ──
-function switchTab(tab){ if(PROTECTED.includes(tab)&&pinIsSet()&&!sessionOk()){ openPinOverlay(tab); return; } reallySwitch(tab); }
+// ── TABS (PIN-protected) ──
+function switchTab(tab){
+  if(PROTECTED.includes(tab) && pinIsSet() && !sessionOk()){
+    openPinOverlay(tab, 'Enter PIN to access '+tab.charAt(0).toUpperCase()+tab.slice(1));
+    return;
+  }
+  reallySwitch(tab);
+}
 function reallySwitch(tab){
   ['scan','queue','history','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','manager'][i]===tab));
@@ -598,32 +797,7 @@ function reallySwitch(tab){
   if(tab==='history') loadHistory();
 }
 
-// ── PRODUCT LOOKUP (uses item-level location) ──
-function getItemLoc(){ return document.getElementById('fLoc').value||null; }
-
-function lookupProduct(val){
-  const itemLoc=getItemLoc();
-  if(!itemLoc||!val) return null;
-  const v=val.trim(), locData=PRODUCT_DB[itemLoc]; if(!locData) return null;
-  const up=v.toUpperCase();
-  for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {pc,...info,isNew:false};
-  const hits=upcIndex[v]; if(hits){ const h=hits.find(x=>x.loc===itemLoc); if(h) return {pc:h.pc,...locData[h.pc],isNew:false}; }
-  return null;
-}
-
-function onProductInput(){
-  const val=document.getElementById('fProduct').value, badge=document.getElementById('productBadge'), sug=document.getElementById('binSuggest');
-  if(!val){ badge.textContent='—'; badge.className='fbadge b-none'; sug.classList.add('hidden'); return; }
-  const r=lookupProduct(val);
-  if(r){ badge.textContent='✓ FOUND'; badge.className='fbadge b-ok'; if(r.b){ document.getElementById('suggestedBinVal').textContent=r.b; sug.classList.remove('hidden'); } else sug.classList.add('hidden'); }
-  else{ badge.textContent='? NEW'; badge.className='fbadge b-new'; sug.classList.add('hidden'); }
-}
-
-function useSuggestedBin(){ document.getElementById('fBin').value=document.getElementById('suggestedBinVal').textContent; focusQty(); }
-function focusQty(){ const e=document.getElementById('fQty'); e.focus(); e.select(); }
-function focusBin(){ document.getElementById('fBin').focus(); }
-
-// ── CAMERA ──
+// ── CAMERA (improved precision with ZXing hints) ──
 async function openCamera(){
   document.getElementById('camOverlay').classList.add('active');
   document.getElementById('camStatus').textContent='Initializing camera…';
@@ -631,17 +805,40 @@ async function openCamera(){
   cameraActive=true;
   try{
     if(typeof ZXing==='undefined') throw new Error('Scanner library not loaded.');
-    codeReader=new ZXing.BrowserMultiFormatReader();
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}});
+    const hints=new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E,
+      ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.DATA_MATRIX,
+      ZXing.BarcodeFormat.ITF, ZXing.BarcodeFormat.PDF_417,
+    ]);
+    codeReader=new ZXing.BrowserMultiFormatReader(hints, 200); // 200ms scan interval
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:'environment'},
+        width:{ideal:1920}, height:{ideal:1080},
+        focusMode:{ideal:'continuous'},
+        zoom:{ideal:1}
+      }
+    });
+    // Enable auto-focus if supported
+    const track=stream.getVideoTracks()[0];
+    if(track&&track.applyConstraints){
+      try{ await track.applyConstraints({advanced:[{focusMode:'continuous'}]}); } catch(e){}
+    }
     const video=document.getElementById('camVideo'); video.srcObject=stream; await video.play();
-    document.getElementById('camStatus').textContent='Point at barcode…';
-    codeReader.decodeFromStream(stream,video,(result)=>{
-      if(!cameraActive||!result) return;
-      const code=result.getText();
-      document.getElementById('camStatus').textContent='✓ Scanned: '+code;
-      document.getElementById('camStatus').className='cam-status found';
-      if(navigator.vibrate) navigator.vibrate(80);
-      setTimeout(()=>{ closeCamera(); handleScannedCode(code); },500);
+    document.getElementById('camStatus').textContent='Point barcode at the frame…';
+    codeReader.decodeFromStream(stream,video,(result,err)=>{
+      if(!cameraActive) return;
+      if(result){
+        const code=result.getText();
+        document.getElementById('camStatus').textContent='✓ Scanned: '+code;
+        document.getElementById('camStatus').className='cam-status found';
+        if(navigator.vibrate) navigator.vibrate(80);
+        setTimeout(()=>{ closeCamera(); handleScannedCode(code); },400);
+      }
     });
   } catch(e){
     let msg=e.message;
@@ -652,23 +849,41 @@ async function openCamera(){
   }
 }
 function closeCamera(){ cameraActive=false; try{ if(codeReader){ codeReader.reset(); codeReader=null; } } catch(e){} const v=document.getElementById('camVideo'); try{ if(v.srcObject){ v.srcObject.getTracks().forEach(t=>t.stop()); v.srcObject=null; } } catch(e){} document.getElementById('camOverlay').classList.remove('active'); }
-function handleScannedCode(code){ document.getElementById('fProduct').value=code; onProductInput(); const r=lookupProduct(code); if(r&&r.b) document.getElementById('fBin').value=r.b; focusQty(); showToast('ok','Barcode Scanned',code); }
+function handleScannedCode(code){
+  document.getElementById('fProduct').value=code;
+  onProductInput();
+  // Auto-fill bin if product found
+  const r=lookupProduct(code);
+  if(r){
+    if(r.b) document.getElementById('fBin').value=r.b;
+    autoSetLocation(r.loc);
+  }
+  focusQty();
+  showToast('ok','Barcode Scanned',code);
+}
+
+function useSuggestedBin(){ document.getElementById('fBin').value=document.getElementById('suggestedBinVal').textContent; focusQty(); }
+function focusQty(){ const e=document.getElementById('fQty'); e.focus(); e.select(); }
+function focusBin(){ document.getElementById('fBin').focus(); }
 
 // ── ADD TO QUEUE ──
 function addToQueue(){
-  const name=document.getElementById('fName').value.trim();
+  if(!currentUser){ showToast('err','Not Signed In','Please sign in first.'); return; }
   const itemLoc=getItemLoc();
   const rawProd=document.getElementById('fProduct').value.trim();
   const qty=parseInt(document.getElementById('fQty').value);
   const bin=document.getElementById('fBin').value.trim();
-  if(!name){ showToast('err','Missing Name','Enter your name before scanning.'); return; }
   if(!itemLoc){ showToast('err','No Location','Select this item\'s location/brand.'); return; }
   if(!rawProd){ showToast('err','Missing Product','Enter or scan a product code.'); return; }
   if(!qty||qty<1){ showToast('err','Invalid Qty','Enter a quantity ≥ 1.'); return; }
   if(!bin){ showToast('err','Missing Bin','Enter a bin location.'); return; }
   const r=lookupProduct(rawProd);
-  if(!r){ showToast('warn','Product Not Found',`"${rawProd}" not in ${itemLoc}. Correct?`,true,()=>commitItem(makeItem(rawProd,qty,bin,itemLoc,true,name))); return; }
-  commitItem(makeItem(r.pc,qty,bin,itemLoc,false,name));
+  if(!r){
+    // Show red banner instead of toast
+    showUnknownBanner(rawProd, itemLoc, makeItem(rawProd,qty,bin,itemLoc,true,currentUser));
+    return;
+  }
+  commitItem(makeItem(r.pc,qty,bin,r.loc||itemLoc,false,currentUser));
 }
 
 function makeItem(pc,qty,bin,loc,isNew,name){
@@ -677,12 +892,21 @@ function makeItem(pc,qty,bin,loc,isNew,name){
 
 async function commitItem(item){
   queue.push(item);
-  if(item.isNew){ newItems.push(item); showToast('warn','⚠ New Item Flagged',`"${item.pc}" not in DB.`); updateNewAlerts(); }
-  else showToast('ok','Added to Queue',`[${item.loc}] ${item.pc} × ${item.qty} → ${item.bin}`);
+  if(item.isNew){
+    newItems.push(item);
+    showToast('warn','⚠ New Item Flagged',`"${item.pc}" not in DB — manager alerted.`);
+    updateNewAlerts();
+    // Fire manager alert via Firebase
+    if(dbReady&&db){
+      try{ await db.collection('rtp_alerts').add({
+        type:'new_product', product_code:item.pc, location:item.loc,
+        scanned_by:item.name, resolved:false,
+        created_at:firebase.firestore.FieldValue.serverTimestamp()
+      }); } catch(e){ console.error(e); }
+    }
+  } else showToast('ok','Added to Queue',`[${item.loc}] ${item.pc} × ${item.qty} → ${item.bin}`);
   activityLog.unshift({pc:item.pc,qty:item.qty,bin:item.bin,loc:item.loc,isNew:item.isNew,name:item.name,time:item.time});
   if(activityLog.length>30) activityLog.pop();
-
-  // After adding, reset item location to default and clear form
   clearForm();
   updateQueueUI(); updateManagerUI();
 
@@ -703,11 +927,12 @@ function clearForm(){
   document.getElementById('fProduct').value='';
   document.getElementById('fQty').value='';
   document.getElementById('fBin').value='';
+  document.getElementById('fScannerInput').value='';
   document.getElementById('productBadge').textContent='—';
   document.getElementById('productBadge').className='fbadge b-none';
   document.getElementById('binSuggest').classList.add('hidden');
-  // Reset item location back to default for next scan
-  document.getElementById('fLoc').value=defaultLoc||'';
+  dismissUnknownBanner();
+  document.getElementById('fLoc').value='';
   document.getElementById('fProduct').focus();
 }
 
@@ -739,54 +964,75 @@ function updateQueueUI(){
     </div>`;
   }).join('');
   const total=queue.reduce((s,i)=>s+i.qty,0);
-  const locs=[...new Set(queue.map(i=>i.loc))].sort();
-  document.getElementById('qSummary').innerHTML=`<strong>${queue.length}</strong> items · <strong>${total}</strong> units · <strong style="color:var(--accent)">${locs.join(', ')}</strong>`;
+  document.getElementById('qSummary').textContent=`${queue.length} item(s) · ${total} total units`;
 }
 
-// Change a queued item's location on the fly (before export)
-function changeItemLoc(idx, newLoc){
-  if(queue[idx]) { queue[idx].loc = newLoc; updateManagerUI(); }
-}
-
+function changeItemLoc(idx,loc){ if(queue[idx]){ queue[idx].loc=loc; } }
 function removeItem(idx){ queue.splice(idx,1); updateQueueUI(); updateManagerUI(); }
-function clearQueue(){ if(!confirm('Clear all items?')) return; queue=[]; updateQueueUI(); updateManagerUI(); }
+function clearQueue(){ if(!confirm('Clear entire queue?')) return; queue=[]; updateQueueUI(); updateManagerUI(); }
 
-// ── APPRISE CSV (per-item location prefix) ──
-// Each item carries its own .loc captured at scan time — mixed pallets fully supported.
-// Bin is written as a plain quoted string; the tab-prefix trick forces Excel text type.
-async function exportToApprise(){
-  if(!queue.length){ showToast('err','Queue Empty','Add items first.'); return; }
+// ── EXPORT LOG HELPERS ──
+function getExportFingerprint(){
+  // A fingerprint based on sorted item ids — same queue = same fingerprint
+  return queue.map(i=>i.pc+'_'+i.qty+'_'+i.bin+'_'+i.loc).sort().join('|');
+}
+function findDuplicateExport(fp){
+  return exportLog.find(e=>e.fingerprint===fp);
+}
+function recordExport(filename){
+  const entry={
+    id:Date.now(), fingerprint:getExportFingerprint(),
+    filename, timestamp:new Date(),
+    items:queue.length, qty:queue.reduce((s,i)=>s+i.qty,0),
+    locs:[...new Set(queue.map(i=>i.loc))]
+  };
+  exportLog.unshift(entry);
+  if(exportLog.length>50) exportLog.pop();
+  updateExportLog();
+}
+function updateExportLog(){
+  const el=document.getElementById('exportLogList');
+  if(!exportLog.length){ el.innerHTML='<div style="font-size:12px;color:var(--text-dim);">No exports yet.</div>'; return; }
+  el.innerHTML=exportLog.map((e,i)=>`
+    <div class="exp-log-item">
+      <div class="exp-log-num">#${exportLog.length-i}</div>
+      <div class="exp-log-info">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:600;">${e.filename}</div>
+        <div class="exp-log-ts">${e.timestamp.toLocaleString()} · ${e.items} items · ${e.qty} units · ${e.locs.join('/')}</div>
+      </div>
+    </div>`).join('');
+}
+
+// ── APPRISE EXPORT (with duplicate detection + PIN override) ──
+function exportToApprise(){
+  if(!queue.length){ showToast('err','Queue Empty','Add items before exporting.'); return; }
+  const fp=getExportFingerprint();
+  const dup=findDuplicateExport(fp);
+  if(dup){
+    // Warn and require PIN override
+    if(pinIsSet()&&!sessionOk()){
+      openPinOverlay(null,'This queue was already exported on '+dup.timestamp.toLocaleString()+'. Enter PIN to re-print.',()=>doActualExport());
+      return;
+    }
+    // PIN already unlocked — still confirm
+    if(!confirm('⚠ This queue was already exported on '+dup.timestamp.toLocaleString()+'.\nRe-print anyway?')) return;
+  }
+  doActualExport();
+}
+
+function doActualExport(){
   const adjCode=document.getElementById('adjCode').value||'GenQtyAdj';
-  const remark =document.getElementById('adjRemark').value||'RTP Putaway';
-
-  // Build raw rows — NO formula tricks, just plain values.
-  // We'll write the CSV with a BOM so Excel opens UTF-8 correctly,
-  // and prefix bin values with a tab so Excel treats them as text.
-  const header=['Product Code','Location Prefix','Bin','Lot','Serial Number','Unit of Measure','Quantity Adjustment','Adjustment Code','Remark'];
-  const dataRows = queue.map(item => [
-    item.pc,
-    item.loc,           // ← each item's own location, captured at scan time
-    '\t' + item.bin,    // tab prefix = Excel forces text, no date conversion
-    '',
-    '',
-    'each',
-    item.qty,
-    adjCode,
-    remark
-  ]);
-
-  // CSV serialiser — wrap every cell in quotes, escape inner quotes
-  function csvCell(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
-  const lines = [header, ...dataRows].map(r => r.map(csvCell).join(','));
-  // UTF-8 BOM so Excel doesn't mangle special chars
-  const csv = '\uFEFF' + lines.join('\r\n');
-
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}), url=URL.createObjectURL(blob), a=document.createElement('a');
-  a.href=url;
+  const adjRemark=document.getElementById('adjRemark').value||'RTP Putaway';
   const d=new Date();
-  const locs=[...new Set(queue.map(i=>i.loc))].sort().join('-');
-  a.download=`Apprise_RTP_${locs}_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}.csv`;
-  a.click(); URL.revokeObjectURL(url);
+  const pad=n=>String(n).padStart(2,'0');
+  const filename=`Apprise_RTP_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.csv`;
+  const header='AdjustmentCode,ProductCode,Quantity,BinLocation,Remark,Location\n';
+  const rows=queue.map(i=>`${adjCode},${i.pc},${i.qty},"${i.bin}","${adjRemark}",${i.loc}`).join('\n');
+  const blob=new Blob([header+rows],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a);
+  a.click(); URL.revokeObjectURL(url); a.remove();
+  recordExport(filename);
   showToast('ok','Exported!',`${queue.length} items across ${[...new Set(queue.map(i=>i.loc))].length} location(s).`);
   if(dbReady&&db){
     const batch=db.batch();
@@ -886,7 +1132,7 @@ function updateManagerUI(){
   document.getElementById('sTotal').textContent=queue.reduce((s,i)=>s+i.qty,0);
   document.getElementById('sNew').textContent=queue.filter(i=>i.isNew).length;
   const locs=[...new Set(queue.map(i=>i.loc))];
-  document.getElementById('sLoc').textContent=locs.length?locs.sort().join('/'):defaultLoc||'—';
+  document.getElementById('sLoc').textContent=locs.length?locs.sort().join('/'):'—';
   document.getElementById('exportCount').textContent=
     queue.length?`${queue.length} items · ${queue.reduce((s,i)=>s+i.qty,0)} units · ${[...new Set(queue.map(i=>i.loc))].length} location(s)`:'No items in queue yet.';
   const log=document.getElementById('activityLog');
@@ -898,14 +1144,15 @@ function updateManagerUI(){
       <div class="sess-meta">×${a.qty} → ${a.bin}${a.name?' ('+a.name+')':''}</div>
       <div class="sess-time">${a.time.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
     </div>`).join('');
+  updateExportLog();
 }
 
 function updateNewAlerts(){
   const el=document.getElementById('newItemAlerts');
   if(!newItems.length){ el.innerHTML=''; return; }
   el.innerHTML=`<div class="new-alert"><div class="na-icon">⚠️</div>
-    <div class="na-text"><strong>${newItems.length} New Product(s) Flagged</strong>
-    ${newItems.map(i=>`<br><span style="font-family:var(--mono);font-weight:700">[${i.loc}] ${i.pc}</span>`).join('')}
+    <div class="na-text"><strong>${newItems.length} New Product(s) Flagged — Needs Review</strong>
+    ${newItems.map(i=>`<br><span style="font-family:var(--mono);font-weight:700">[${i.loc}] ${i.pc}</span> — scanned by ${i.name}`).join('')}
     </div></div>`;
 }
 
@@ -924,6 +1171,7 @@ function dismissToast(){ document.getElementById('toast').classList.remove('show
 // ── BOOT ──
 initFirebase();
 refreshPinCard();
+initLogin();
 </script>
 </body>
 </html>
