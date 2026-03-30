@@ -10,12 +10,12 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
   :root {
-    --bg:#0a0e1a; --surface:#111827; --surface2:#1a2235; --border:#1e2d45;
+    --bg:#151c2c; --surface:#1e2a3a; --surface2:#243044; --border:#2d3f58;
     --accent:#00d4aa; --accent-dim:rgba(0,212,170,0.12);
     --warn:#f59e0b; --warn-dim:rgba(245,158,11,0.12);
     --danger:#ef4444; --danger-dim:rgba(239,68,68,0.12);
     --success:#22c55e; --success-dim:rgba(34,197,94,0.10);
-    --text:#e2e8f0; --text-dim:#64748b; --text-muted:#334155;
+    --text:#dde6f0; --text-dim:#7a92ad; --text-muted:#3d5470;
     --mono:'JetBrains Mono',monospace; --sans:'DM Sans',sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -740,6 +740,8 @@ async function clearHistory(){
     for(const doc of snap.docs){ batch.delete(doc.ref); count++; }
     await batch.commit();
     histAllDocs=[]; histDisplayedCount=50;
+    localStorage.removeItem(HIST_CACHE_KEY);
+    localStorage.removeItem(HIST_CACHE_TS_KEY);
     document.getElementById('histContent').innerHTML='<div class="hist-empty">History cleared.</div>';
     document.getElementById('histSummaryBar').classList.add('hidden');
     showToast('ok','History Cleared',`${count} records deleted.`);
@@ -1100,17 +1102,39 @@ function exportToApprise(){
 }
 
 async function doActualExport(){
-  const adjCode=document.getElementById('adjCode').value||'GenQtyAdj';
-  const adjRemark=document.getElementById('adjRemark').value||'RTP Putaway';
   const d=new Date();
   const pad=n=>String(n).padStart(2,'0');
-  const filename=`Apprise_RTP_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.csv`;
-  const header='AdjustmentCode,ProductCode,Quantity,BinLocation,Remark,Location\n';
-  const rows=queue.map(i=>`${adjCode},${i.pc||i.product_code},${i.qty||i.quantity},"${i.bin}","${adjRemark}",${i.loc||i.location}`).join('\n');
-  const blob=new Blob([header+rows],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a);
-  a.click(); URL.revokeObjectURL(url); a.remove();
+  const filename=`Apprise_RTP_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.xlsx`;
+
+  // Build rows: A=ProductCode, B=LocationPrefix, C=BinLocation, D='', E='', F='each', G=Qty, H='GenQtyAdj', I='Returns', J=''
+  const dataRows = queue.map(i => [
+    i.pc || i.product_code,           // A: Product Code
+    i.loc || i.location,              // B: Location Prefix
+    i.bin,                            // C: Bin Location
+    '',                               // D: blank
+    '',                               // E: blank
+    'each',                           // F: each
+    i.qty || i.quantity,              // G: Qty
+    'GenQtyAdj',                      // H: Adjustment code
+    'Returns',                        // I: Remark
+    ''                                // J: blank
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(dataRows);
+
+  // Force Bin (col C, index 2) as text to preserve leading zeros
+  const range = XLSX.utils.decode_range(ws['!ref']||'A1');
+  for(let R=0; R<=range.e.r; R++){
+    const cell = XLSX.utils.encode_cell({r:R, c:2});
+    if(ws[cell]){ ws[cell].t='s'; ws[cell].z='@'; }
+  }
+
+  // Column widths
+  ws['!cols']=[{wch:16},{wch:10},{wch:14},{wch:6},{wch:6},{wch:8},{wch:8},{wch:12},{wch:10},{wch:6}];
+  XLSX.utils.book_append_sheet(wb, ws, 'RTP Import');
+  XLSX.writeFile(wb, filename);
+
   recordExport(filename);
   showToast('ok','Exported!',`${queue.length} items · moving to history…`);
 
@@ -1120,7 +1144,6 @@ async function doActualExport(){
       const exportedAt = firebase.firestore.FieldValue.serverTimestamp();
       const writeBatch = db.batch();
       for(const item of queue){
-        // Add to history
         const histRef = db.collection('rtp_returns').doc();
         writeBatch.set(histRef,{
           location: item.loc||item.location,
@@ -1134,7 +1157,6 @@ async function doActualExport(){
           exported_at: exportedAt,
           export_file: filename
         });
-        // Remove from queue
         if(item.firebaseId) writeBatch.delete(db.collection('rtp_queue').doc(item.firebaseId));
       }
       await writeBatch.commit();
@@ -1143,31 +1165,96 @@ async function doActualExport(){
 }
 
 // ── HISTORY ──
-async function loadHistory(){
-  if(!dbReady||!db){ document.getElementById('histContent').innerHTML=`<div class="hist-empty">⚠ Firebase not connected.</div>`; return; }
-  histAllDocs=[]; histDisplayedCount=HIST_PAGE_SIZE;
-  const loc  =document.getElementById('histLocFilter').value;
-  const srch =document.getElementById('histSearch').value.trim().toUpperCase();
-  const from =document.getElementById('histDateFrom').value;
-  const to   =document.getElementById('histDateTo').value;
-  document.getElementById('histContent').innerHTML=`<div class="hist-loading">Loading…</div>`;
-  document.getElementById('histSummaryBar').classList.add('hidden');
+const HIST_CACHE_KEY = 'rtp_hist_cache';
+const HIST_CACHE_TS_KEY = 'rtp_hist_cache_ts';
+
+function saveHistCache(docs){
   try{
-    const snap=await db.collection('rtp_returns').orderBy('scanned_at','desc').limit(500).get();
-    let docs=snap.docs.map(d=>({id:d.id,...d.data()}));
-    if(loc)  docs=docs.filter(r=>r.location===loc);
-    if(srch) docs=docs.filter(r=>(r.product_code||'').toUpperCase().includes(srch));
-    if(from){ const ft=new Date(from+'T00:00:00'); docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts>=ft; }); }
-    if(to){   const tt=new Date(to+'T23:59:59');   docs=docs.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts<=tt; }); }
-    histAllDocs=docs;
-    if(docs.length){
-      document.getElementById('hsTotalRecords').textContent=docs.length;
-      document.getElementById('hsTotalUnits').textContent=docs.reduce((s,r)=>s+(r.quantity||0),0);
-      document.getElementById('hsTotalNew').textContent=docs.filter(r=>r.is_new_product).length;
-      document.getElementById('histSummaryBar').classList.remove('hidden');
-    }
-    renderHistRows(docs.slice(0,HIST_PAGE_SIZE), docs.length>HIST_PAGE_SIZE);
-  } catch(e){ document.getElementById('histContent').innerHTML=`<div class="hist-empty">Error: ${e.message}</div>`; }
+    // Store serializable version (convert Firestore timestamps to ISO)
+    const serializable = docs.map(d=>({
+      ...d,
+      scanned_at: d.scanned_at?.toDate ? d.scanned_at.toDate().toISOString() : d.scanned_at,
+      exported_at: d.exported_at?.toDate ? d.exported_at.toDate().toISOString() : d.exported_at,
+    }));
+    localStorage.setItem(HIST_CACHE_KEY, JSON.stringify(serializable));
+    localStorage.setItem(HIST_CACHE_TS_KEY, Date.now().toString());
+  } catch(e){ console.warn('Could not cache history:', e); }
+}
+
+function loadHistCache(){
+  try{
+    const raw = localStorage.getItem(HIST_CACHE_KEY);
+    if(!raw) return null;
+    const docs = JSON.parse(raw).map(d=>({
+      ...d,
+      // Re-attach toDate() shim so rendering code works
+      scanned_at: d.scanned_at ? { toDate:()=>new Date(d.scanned_at), _isCached:true } : null,
+    }));
+    return docs;
+  } catch(e){ return null; }
+}
+
+function getCacheAge(){
+  const ts = parseInt(localStorage.getItem(HIST_CACHE_TS_KEY)||'0');
+  if(!ts) return null;
+  const mins = Math.round((Date.now()-ts)/60000);
+  return mins < 60 ? `${mins}m ago` : `${Math.round(mins/60)}h ago`;
+}
+
+async function loadHistory(){
+  const loc  = document.getElementById('histLocFilter').value;
+  const srch = document.getElementById('histSearch').value.trim().toUpperCase();
+  const from = document.getElementById('histDateFrom').value;
+  const to   = document.getElementById('histDateTo').value;
+
+  // 1. Show cached data instantly
+  const cached = loadHistCache();
+  if(cached && cached.length){
+    const age = getCacheAge();
+    document.getElementById('histContent').innerHTML=`<div class="hist-loading" style="color:var(--text-muted);font-size:11px;">Cached ${age} · refreshing from Firebase…</div>`;
+    const filtered = applyHistFilters(cached, loc, srch, from, to);
+    histAllDocs = filtered;
+    renderHistSummary(filtered);
+    renderHistRows(filtered.slice(0, HIST_PAGE_SIZE), filtered.length > HIST_PAGE_SIZE);
+  } else {
+    document.getElementById('histContent').innerHTML=`<div class="hist-loading">Loading…</div>`;
+    document.getElementById('histSummaryBar').classList.add('hidden');
+  }
+
+  // 2. Fetch fresh from Firebase in background (always, not just when no cache)
+  if(!dbReady||!db){
+    if(!cached) document.getElementById('histContent').innerHTML=`<div class="hist-empty">⚠ Firebase not connected.</div>`;
+    return;
+  }
+  try{
+    const snap = await db.collection('rtp_returns').orderBy('scanned_at','desc').limit(500).get();
+    const allDocs = snap.docs.map(d=>({id:d.id,...d.data()}));
+    saveHistCache(allDocs); // update cache
+    const filtered = applyHistFilters(allDocs, loc, srch, from, to);
+    histAllDocs = filtered;
+    histDisplayedCount = HIST_PAGE_SIZE;
+    renderHistSummary(filtered);
+    renderHistRows(filtered.slice(0, HIST_PAGE_SIZE), filtered.length > HIST_PAGE_SIZE);
+  } catch(e){
+    if(!cached) document.getElementById('histContent').innerHTML=`<div class="hist-empty">Error: ${e.message}</div>`;
+  }
+}
+
+function applyHistFilters(docs, loc, srch, from, to){
+  let out = docs;
+  if(loc)  out = out.filter(r=>r.location===loc);
+  if(srch) out = out.filter(r=>(r.product_code||'').toUpperCase().includes(srch));
+  if(from){ const ft=new Date(from+'T00:00:00'); out=out.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts>=ft; }); }
+  if(to){   const tt=new Date(to+'T23:59:59');   out=out.filter(r=>{ const ts=r.scanned_at?.toDate?r.scanned_at.toDate():new Date(r.scanned_at||0); return ts<=tt; }); }
+  return out;
+}
+
+function renderHistSummary(docs){
+  if(!docs.length){ document.getElementById('histSummaryBar').classList.add('hidden'); return; }
+  document.getElementById('hsTotalRecords').textContent=docs.length;
+  document.getElementById('hsTotalUnits').textContent=docs.reduce((s,r)=>s+(r.quantity||0),0);
+  document.getElementById('hsTotalNew').textContent=docs.filter(r=>r.is_new_product).length;
+  document.getElementById('histSummaryBar').classList.remove('hidden');
 }
 
 function loadMoreHistory(){ histDisplayedCount+=HIST_PAGE_SIZE; renderHistRows(histAllDocs.slice(0,histDisplayedCount), histAllDocs.length>histDisplayedCount); }
