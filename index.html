@@ -417,7 +417,7 @@
   </div>
 
   <div class="hist-filters">
-    <select id="histLocFilter" onchange="loadHistory()">
+    <select id="histLocFilter" onchange="refilterHistory()">
       <option value="">All Locations</option>
       <option value="BC">BC</option>
       <option value="EE">EE</option>
@@ -430,12 +430,12 @@
       oninput="debounceHistSearch()" autocomplete="off" autocorrect="off" spellcheck="false">
   </div>
   <div class="hist-date-row">
-    <input type="date" id="histDateFrom" onchange="loadHistory()" title="From date">
-    <input type="date" id="histDateTo"   onchange="loadHistory()" title="To date">
+    <input type="date" id="histDateFrom" onchange="refilterHistory()" title="From date">
+    <input type="date" id="histDateTo"   onchange="refilterHistory()" title="To date">
   </div>
   <div style="display:flex;gap:8px;margin-bottom:12px;">
     <button class="btn btn-success" style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="exportHistoryExcel()">📊 Export Excel</button>
-    <button class="btn btn-ghost"   style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="loadHistory()">🔄 Refresh</button>
+    <button class="btn btn-ghost"   style="margin-bottom:0;flex:1;padding:10px;font-size:13px;" onclick="loadHistory()">🔄 Refresh from Firebase</button>
   </div>
   <div style="margin-bottom:12px;">
     <button class="btn btn-danger" style="margin-bottom:0;font-size:13px;padding:10px;" onclick="clearHistory()">🗑 Clear All History</button>
@@ -640,9 +640,11 @@ function initFirebase(){
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
-    db.collection('rtp_returns').limit(1).get()
-      .then(()=>{ dbReady=true; setDbStatus('ok','Firebase'); startQueueListener(); })
-      .catch(e=>{ setDbStatus('err','DB Error'); console.error(e); });
+    // Enable offline persistence to reduce reads on reconnect
+    db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    dbReady=true;
+    setDbStatus('ok','Firebase');
+    startQueueListener();
   } catch(e){ setDbStatus('err','Init failed'); console.error(e); }
 }
 function setDbStatus(s,l){ document.getElementById('dbDot').className='db-dot '+(s==='ok'?'ok':'err'); document.getElementById('dbLabel').textContent=l; }
@@ -907,8 +909,9 @@ function reallySwitch(tab){
   ['scan','queue','history','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','manager'][i]===tab));
   if(tab==='scan') setTimeout(focusProductField, 100);
+  if(tab==='queue') fetchQueue();
   if(tab==='manager') updateManagerUI();
-  if(tab==='history') loadHistory();
+  if(tab==='history') refilterHistory();
 }
 
 function useSuggestedBin(){ document.getElementById('fBin').value=document.getElementById('suggestedBinVal').textContent; focusQty(); }
@@ -950,6 +953,7 @@ async function commitItem(item){
         name: item.name, scanned_by: item.name,
         scanned_at: firebase.firestore.FieldValue.serverTimestamp()
       });
+      fetchQueue(); // refresh local queue after add
     } catch(e){ console.error(e); showToast('warn','DB Warning','Could not save to shared queue.'); return; }
   } else {
     // Offline fallback — local only
@@ -990,7 +994,7 @@ function clearForm(){
 
 // ── QUEUE UI ──
 const LOC_OPTIONS = ['BC','EE','FS','GT','NH','VP'];
-let queueListener = null; // Firestore real-time listener
+let queueListener = null; // kept for compatibility — no longer used
 
 function startQueueListener(){
   if(!dbReady||!db){
@@ -998,14 +1002,18 @@ function startQueueListener(){
     return;
   }
   document.getElementById('qFirebaseWarn').classList.add('hidden');
-  if(queueListener) queueListener(); // unsubscribe previous
-  queueListener = db.collection('rtp_queue')
-    .orderBy('scanned_at','asc')
-    .onSnapshot(snap=>{
-      queue = snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
-      updateQueueUI();
-      updateManagerUI();
-    }, e=>console.error('Queue listener error:',e));
+  // Single fetch — refreshes on tab open and after commits. No onSnapshot (too many reads).
+  fetchQueue();
+}
+
+async function fetchQueue(){
+  if(!dbReady||!db) return;
+  try{
+    const snap = await db.collection('rtp_queue').orderBy('scanned_at','asc').get();
+    queue = snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
+    updateQueueUI();
+    updateManagerUI();
+  } catch(e){ console.error('Queue fetch error:',e); }
 }
 
 function updateQueueUI(){
@@ -1289,7 +1297,22 @@ function renderHistRows(docs,hasMore){
   document.getElementById('histContent').innerHTML=html;
 }
 
-function debounceHistSearch(){ clearTimeout(histSearchTimer); histSearchTimer=setTimeout(()=>loadHistory(),400); }
+// Refilter from cache only — zero Firebase reads
+function refilterHistory(){
+  const loc  = document.getElementById('histLocFilter').value;
+  const srch = document.getElementById('histSearch').value.trim().toUpperCase();
+  const from = document.getElementById('histDateFrom').value;
+  const to   = document.getElementById('histDateTo').value;
+  const cached = loadHistCache();
+  if(!cached){ loadHistory(); return; } // no cache yet — fetch
+  const filtered = applyHistFilters(cached, loc, srch, from, to);
+  histAllDocs = filtered;
+  histDisplayedCount = HIST_PAGE_SIZE;
+  renderHistSummary(filtered);
+  renderHistRows(filtered.slice(0,HIST_PAGE_SIZE), filtered.length>HIST_PAGE_SIZE);
+}
+
+function debounceHistSearch(){ clearTimeout(histSearchTimer); histSearchTimer=setTimeout(refilterHistory,300); }
 
 // ── EXCEL EXPORT ──
 function exportHistoryExcel(){
