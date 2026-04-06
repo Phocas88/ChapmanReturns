@@ -508,7 +508,7 @@
       <div class="frow item-loc-row">
         <div class="ficon" style="background:var(--accent-dim);">📍</div>
         <div class="flwrap">
-          <div class="flabel">Location / Brand <span style="font-size:9px;opacity:0.7;">(auto-detected)</span></div>
+          <div class="flabel">Location / Brand <span style="font-size:9px;color:var(--accent);opacity:0.8;">(auto from DB · override if needed)</span></div>
           <select class="finput" id="ccLoc">
             <option value="">— Select —</option>
             <option value="BC">BC</option><option value="EE">EE</option>
@@ -613,6 +613,10 @@
           <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--warn);" id="ccStatConflict">0</div>
           <div style="font-size:9px;color:var(--warn);text-transform:uppercase;letter-spacing:0.8px;">Conflicts</div>
         </div>
+        <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:#a78bfa;" id="ccStatMissing">0</div>
+          <div style="font-size:9px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.8px;">Bin Missing</div>
+        </div>
       </div>
 
       <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:8px;">⬇ Export Apprise XLSX</button>
@@ -620,9 +624,11 @@
       <div class="cc-tabs">
         <div class="cc-tab active" id="ccTabAdj" onclick="showCCView('adj')">📋 Adjustments</div>
         <div class="cc-tab" id="ccTabConflict" onclick="showCCView('conflict')">⚠️ Ops Conflicts</div>
+        <div class="cc-tab" id="ccTabMissing" onclick="showCCView('missing')">📍 Bin Missing</div>
       </div>
       <div id="ccAdjList"></div>
       <div id="ccConflictList" class="hidden"></div>
+      <div id="ccMissingList" class="hidden"></div>
     </div>
   </div>
 
@@ -1472,6 +1478,7 @@ let ccBinLoaded    = false;
 let ccEntries      = [];
 let ccCompared     = [];
 let ccConflicts    = [];
+let ccMissing      = [];
 let ccMode         = 'scan';
 let ccListener     = null;
 
@@ -1492,39 +1499,44 @@ function initCountTab(){
 function onCCProductInput(){
   const val   = document.getElementById('ccProduct').value.trim();
   const badge = document.getElementById('ccProductBadge');
-  if(!val){ badge.textContent='—'; badge.className='fbadge b-none'; return; }
+  if(!val){ badge.textContent='—'; badge.className='fbadge b-none'; document.getElementById('ccLoc').value=''; return; }
   const found = lookupProduct(val);
   if(found){
     badge.textContent='✓'; badge.className='fbadge b-ok';
+    // Always resolve PC and location from DB — this is what Apprise needs
     if(found.pc && found.pc!==val) document.getElementById('ccProduct').value=found.pc;
-    if(found.loc && !document.getElementById('ccLoc').value)
-      document.getElementById('ccLoc').value=found.loc;
+    if(found.loc) document.getElementById('ccLoc').value=found.loc; // always set, not just when empty
   } else {
     badge.textContent='?'; badge.className='fbadge b-new';
+    document.getElementById('ccLoc').value=''; // clear if unknown product
   }
 }
 
 async function addCountEntry(){
-  const loc     = document.getElementById('ccLoc').value;
   const rawPc   = document.getElementById('ccProduct').value.trim();
   const bin     = document.getElementById('ccBin').value.trim().toUpperCase();
   const counted = parseInt(document.getElementById('ccCounted').value);
-  if(!loc)              { showToast('err','Missing Location','Select a location/brand.'); return; }
   if(!rawPc)            { showToast('err','Missing Product','Scan or enter a product code.'); return; }
   if(!bin)              { showToast('err','Missing Bin','Scan or enter the bin.'); return; }
   if(isNaN(counted)||counted<0){ showToast('err','Invalid Qty','Enter 0 or more.'); return; }
+
+  // Always resolve from product DB so location matches Apprise exactly
   const found = lookupProduct(rawPc);
   const pc    = found ? found.pc : rawPc.toUpperCase();
+  const loc   = found ? found.loc : document.getElementById('ccLoc').value;
+
+  if(!loc){ showToast('err','Unknown Division','Product not found in DB — select location manually.'); return; }
+
   const entry = { pc, bin, loc, counted, scanned_by: currentUser||'' };
   if(dbReady&&db){
     try{
       await db.collection('rtp_cycle_count').add({...entry, scanned_at: firebase.firestore.FieldValue.serverTimestamp()});
-      showToast('ok','Recorded',`${pc} @ ${bin} · qty ${counted}`);
+      showToast('ok','Recorded',`[${loc}] ${pc} @ ${bin} · qty ${counted}`);
     } catch(e){ console.error(e); showToast('err','DB Error',e.message); return; }
   } else {
     ccEntries.push({...entry, scanned_at:new Date(), id:Date.now()});
     renderCCScanList();
-    showToast('ok','Recorded (local)',`${pc} @ ${bin} · qty ${counted}`);
+    showToast('ok','Recorded (local)',`[${loc}] ${pc} @ ${bin} · qty ${counted}`);
   }
   clearCCForm();
 }
@@ -1533,6 +1545,7 @@ function clearCCForm(){
   document.getElementById('ccProduct').value='';
   document.getElementById('ccBin').value='';
   document.getElementById('ccCounted').value='';
+  document.getElementById('ccLoc').value='';
   document.getElementById('ccProductBadge').textContent='—';
   document.getElementById('ccProductBadge').className='fbadge b-none';
   document.getElementById('ccProduct').focus();
@@ -1634,7 +1647,7 @@ function parseCCBinReport(rows){
 }
 
 function resetCCUpload(){
-  ccBinReport={}; ccBinLoaded=false; ccCompared=[]; ccConflicts=[];
+  ccBinReport={}; ccBinLoaded=false; ccCompared=[]; ccConflicts=[]; ccMissing=[];
   document.getElementById('ccUploadBox').style.display='';
   document.getElementById('ccLoadedBar').classList.add('hidden');
   document.getElementById('ccCompareResults').classList.add('hidden');
@@ -1649,102 +1662,202 @@ async function runCCCompare(){
     ccEntries=snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
   }
   if(!ccEntries.length){ showToast('warn','No Counts','No scanned entries found for today.'); return; }
-  ccCompared=[]; ccConflicts=[];
+
+  ccCompared=[]; ccConflicts=[]; ccMissing=[];
+
+  // Last scan wins per PC|BIN key
   const scanned={};
   for(const e of ccEntries){
-    const key=(e.pc||''). toUpperCase()+'|'+(e.bin||''). toUpperCase();
+    const key=(e.pc||'').toUpperCase()+'|'+(e.bin||'').toUpperCase();
     scanned[key]=e;
   }
+
   for(const [key,scanEntry] of Object.entries(scanned)){
-    const binRec=ccBinReport[key];
-    const qoh  =binRec?binRec.qoh:null;
-    const alloc=binRec?binRec.alloc:0;
-    const avail=binRec?binRec.available:null;
-    const delta=qoh!==null?scanEntry.counted-qoh:null;
-    const result={pc:scanEntry.pc,bin:scanEntry.bin,loc:scanEntry.loc||'',counted:scanEntry.counted,qoh,alloc,avail,delta,scanned_by:scanEntry.scanned_by||'',isConflict:false,conflictNote:'',exportDelta:delta};
-    if(delta!==null&&delta<0&&alloc>0&&scanEntry.counted<alloc){
-      result.isConflict=true;
-      result.exportDelta=-(avail);
-      result.conflictNote=`Counted ${scanEntry.counted} is below allocated ${alloc}. Max adjustment: ${result.exportDelta} (to ${alloc}). Remainder needs ops to cancel order.`;
+    const binRec = ccBinReport[key];
+
+    // ── BIN NOT IN REPORT FOR THIS DIVISION ──
+    // Treat as adding from zero: delta = +counted, goes into Bin Missing list AND export
+    if(!binRec){
+      ccMissing.push({
+        pc: scanEntry.pc,
+        bin: scanEntry.bin,
+        loc: scanEntry.loc||'',
+        counted: scanEntry.counted,
+        qoh: 0,
+        delta: scanEntry.counted,        // +counted (adding from 0)
+        exportDelta: scanEntry.counted,
+        scanned_by: scanEntry.scanned_by||'',
+        isMissing: true
+      });
+      continue;
+    }
+
+    const qoh   = binRec.qoh;
+    const alloc = binRec.alloc;
+    const avail = binRec.available;
+    const delta = scanEntry.counted - qoh;
+    const result = {
+      pc: scanEntry.pc, bin: scanEntry.bin, loc: scanEntry.loc||'',
+      counted: scanEntry.counted, qoh, alloc, avail, delta,
+      scanned_by: scanEntry.scanned_by||'',
+      isConflict: false, conflictNote: '', exportDelta: delta
+    };
+
+    // Allocation conflict: reducing below allocated qty
+    if(delta < 0 && alloc > 0 && scanEntry.counted < alloc){
+      result.isConflict  = true;
+      result.exportDelta = -(avail);  // max allowable reduction
+      result.conflictNote= `Counted ${scanEntry.counted} is below allocated ${alloc}. Max adjustment: ${result.exportDelta} (to ${alloc}). Remainder needs ops to cancel order.`;
       ccConflicts.push(result);
-    } else { ccCompared.push(result); }
+    } else {
+      ccCompared.push(result);
+    }
   }
+
   renderCCCompareResults();
   document.getElementById('ccCompareResults').classList.remove('hidden');
   const ts=new Date();
-  document.getElementById('ccDateNote').textContent=`Compared ${ccEntries.length} entries against ${Object.keys(ccBinReport).length} bin report records · ${ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('ccDateNote').textContent=
+    `Compared ${ccEntries.length} entries against ${Object.keys(ccBinReport).length} bin report records · ${ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
 }
 
 function renderCCCompareResults(){
-  const matches=ccCompared.filter(e=>e.delta===0).length;
-  const adjs=ccCompared.filter(e=>e.delta!==null&&e.delta!==0).length;
-  document.getElementById('ccStatTotal').textContent=ccCompared.length+ccConflicts.length;
-  document.getElementById('ccStatMatch').textContent=matches;
-  document.getElementById('ccStatAdj').textContent=adjs;
-  document.getElementById('ccStatConflict').textContent=ccConflicts.length;
-  const adjEl=document.getElementById('ccAdjList');
-  if(!ccCompared.length){ adjEl.innerHTML='<div class="cc-empty">No adjustments — all matched or no bin report overlap.</div>'; }
-  else adjEl.innerHTML=ccCompared.map(e=>{
-    const d=e.delta;
-    const cls=d===null?'':(d===0?'match':d>0?'over':'short');
-    const dLabel=d===null?'(not in report)':(d===0?'✓ Match':d>0?`+${d}`:String(d));
-    const dCls=d===null||d===0?'zero':d>0?'pos':'neg';
-    return `<div class="cc-result-card ${cls}">
-      <div class="cc-rc-info">
-        <div class="cc-rc-pc">${e.pc}</div>
-        <div class="cc-rc-bin">📦 ${e.bin} · <span style="color:var(--accent)">${e.loc}</span></div>
-        <div class="cc-rc-meta">
-          <span>System: ${e.qoh??'—'}</span><span>Counted: ${e.counted}</span>
-          ${e.alloc?`<span style="color:var(--warn)">Alloc: ${e.alloc}</span>`:''}
-          ${e.scanned_by?`<span>👤 ${e.scanned_by}</span>`:''}
+  const matches = ccCompared.filter(e=>e.delta===0).length;
+  const adjs    = ccCompared.filter(e=>e.delta!==0).length;
+  const total   = ccCompared.length + ccConflicts.length + ccMissing.length;
+
+  document.getElementById('ccStatTotal').textContent    = total;
+  document.getElementById('ccStatMatch').textContent    = matches;
+  document.getElementById('ccStatAdj').textContent      = adjs;
+  document.getElementById('ccStatConflict').textContent = ccConflicts.length;
+  document.getElementById('ccStatMissing').textContent  = ccMissing.length;
+
+  // ── Adjustments list ──
+  const adjEl = document.getElementById('ccAdjList');
+  const adjItems = ccCompared.filter(e=>e.delta!==0);
+  const matchItems = ccCompared.filter(e=>e.delta===0);
+  const allAdjRows = [...adjItems, ...matchItems]; // adjustments first, matches at bottom
+  if(!allAdjRows.length){
+    adjEl.innerHTML='<div class="cc-empty">No adjustments — all scanned bins matched the report.</div>';
+  } else {
+    adjEl.innerHTML = allAdjRows.map(e=>{
+      const d   = e.delta;
+      const cls = d===0 ? 'match' : d>0 ? 'over' : 'short';
+      const dLabel = d===0 ? '✓ Match' : d>0 ? `+${d}` : String(d);
+      const dCls   = d===0 ? 'zero'   : d>0 ? 'pos'   : 'neg';
+      return `<div class="cc-result-card ${cls}">
+        <div class="cc-rc-info">
+          <div class="cc-rc-pc">${e.pc}</div>
+          <div class="cc-rc-bin">📦 ${e.bin} · <span style="color:var(--accent)">${e.loc}</span></div>
+          <div class="cc-rc-meta">
+            <span>System: ${e.qoh}</span><span>Counted: ${e.counted}</span>
+            ${e.alloc?`<span style="color:var(--warn)">Alloc: ${e.alloc}</span>`:''}
+            ${e.scanned_by?`<span>👤 ${e.scanned_by}</span>`:''}
+          </div>
         </div>
-      </div>
-      <div class="cc-rc-delta ${dCls}">${dLabel}</div>
-    </div>`;
-  }).join('');
-  const conEl=document.getElementById('ccConflictList');
-  if(!ccConflicts.length){ conEl.innerHTML='<div class="cc-empty">No allocation conflicts. ✓</div>'; }
-  else conEl.innerHTML='<div style="font-size:12px;color:var(--warn);margin-bottom:10px;line-height:1.5;background:var(--warn-dim);border-radius:8px;padding:10px 12px;">⚠ These bins cannot be fully adjusted due to allocated qty. Partial adjustment is included in the export. Ops must cancel the associated order for the remaining delta.</div>'
-    +ccConflicts.map(e=>`<div class="cc-conflict-item">
-      <div class="cc-conflict-pc">${e.pc} <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim);">@ ${e.bin}</span></div>
-      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;line-height:1.5;">${e.conflictNote}</div>
-      <div style="font-size:11px;margin-top:4px;display:flex;gap:12px;flex-wrap:wrap;">
-        <span>System: <strong>${e.qoh}</strong></span><span>Counted: <strong>${e.counted}</strong></span>
-        <span style="color:var(--warn)">Allocated: <strong>${e.alloc}</strong></span>
-        <span style="color:var(--danger)">Export Δ: <strong>${e.exportDelta}</strong></span>
-      </div>
-    </div>`).join('');
+        <div class="cc-rc-delta ${dCls}">${dLabel}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Conflicts list ──
+  const conEl = document.getElementById('ccConflictList');
+  if(!ccConflicts.length){
+    conEl.innerHTML='<div class="cc-empty">No allocation conflicts. ✓</div>';
+  } else {
+    conEl.innerHTML=
+      `<div style="font-size:12px;color:var(--warn);margin-bottom:10px;line-height:1.5;background:var(--warn-dim);border-radius:8px;padding:10px 12px;">
+        ⚠ These bins cannot be fully adjusted due to allocated qty. The partial adjustment (down to allocated qty) is included in the export. Ops must cancel the associated order for the remaining delta.
+      </div>`
+      + ccConflicts.map(e=>`<div class="cc-conflict-item">
+          <div class="cc-conflict-pc">${e.pc} <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim);">@ ${e.bin}</span></div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:4px;line-height:1.5;">${e.conflictNote}</div>
+          <div style="font-size:11px;margin-top:4px;display:flex;gap:12px;flex-wrap:wrap;">
+            <span>System: <strong>${e.qoh}</strong></span>
+            <span>Counted: <strong>${e.counted}</strong></span>
+            <span style="color:var(--warn)">Allocated: <strong>${e.alloc}</strong></span>
+            <span style="color:var(--danger)">Export Δ: <strong>${e.exportDelta}</strong></span>
+          </div>
+        </div>`).join('');
+  }
+
+  // ── Bin Missing list ──
+  const misEl = document.getElementById('ccMissingList');
+  if(!ccMissing.length){
+    misEl.innerHTML='<div class="cc-empty">No missing bins. All scanned bins found in report. ✓</div>';
+  } else {
+    misEl.innerHTML=
+      `<div style="font-size:12px;color:#a78bfa;margin-bottom:10px;line-height:1.5;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:10px 12px;">
+        📍 These bins were scanned but not found in the Inventory Bin Report for their division. A <strong>+qty adjustment</strong> is included in the export to add them in from zero. IC Manager will need to add the bin to Apprise.
+      </div>`
+      + ccMissing.map(e=>`<div class="cc-result-card" style="border-left:3px solid #a78bfa;">
+          <div class="cc-rc-info">
+            <div class="cc-rc-pc">${e.pc}</div>
+            <div class="cc-rc-bin">📦 ${e.bin} · <span style="color:var(--accent)">${e.loc}</span> · <span style="color:#a78bfa;font-size:10px;">BIN NOT IN REPORT</span></div>
+            <div class="cc-rc-meta">
+              <span>System: 0 (assumed)</span>
+              <span>Counted: ${e.counted}</span>
+              ${e.scanned_by?`<span>👤 ${e.scanned_by}</span>`:''}
+            </div>
+          </div>
+          <div class="cc-rc-delta pos">+${e.counted}</div>
+        </div>`).join('');
+  }
 }
 
 function showCCView(view){
-  document.getElementById('ccAdjList').classList.toggle('hidden',view!=='adj');
-  document.getElementById('ccConflictList').classList.toggle('hidden',view!=='conflict');
-  document.getElementById('ccTabAdj').classList.toggle('active',view==='adj');
-  document.getElementById('ccTabConflict').classList.toggle('active',view==='conflict');
+  document.getElementById('ccAdjList').classList.toggle('hidden',    view!=='adj');
+  document.getElementById('ccConflictList').classList.toggle('hidden', view!=='conflict');
+  document.getElementById('ccMissingList').classList.toggle('hidden',  view!=='missing');
+  document.getElementById('ccTabAdj').classList.toggle('active',      view==='adj');
+  document.getElementById('ccTabConflict').classList.toggle('active',  view==='conflict');
+  document.getElementById('ccTabMissing').classList.toggle('active',   view==='missing');
 }
 
 function exportCycleCount(){
-  const adjustable=[...ccCompared.filter(e=>typeof e.delta==='number'&&e.delta!==0),
-                    ...ccConflicts.filter(e=>typeof e.exportDelta==='number'&&e.exportDelta!==0)];
-  if(!adjustable.length){ showToast('err','Nothing to Export','No adjustments found. Matches excluded.'); return; }
-  const rows=adjustable.map(e=>[
-    e.pc, e.loc||'', e.bin, '','', 'each',
-    e.isConflict?e.exportDelta:e.delta,
-    'GenQtyAdj',
-    e.isConflict?'Cycle Count - Partial (Alloc Conflict)':'Cycle Count',
-    ''
+  // Include: non-zero adjustments + conflict partial rows + missing bin rows
+  const adjRows      = ccCompared.filter(e=>e.delta!==0);
+  const conflictRows = ccConflicts;
+  const missingRows  = ccMissing;
+  const allExport    = [...adjRows, ...conflictRows, ...missingRows];
+
+  if(!allExport.length){ showToast('err','Nothing to Export','No adjustments found. Matches and empty counts excluded.'); return; }
+
+  const rows = allExport.map(e=>[
+    e.pc,                                                                    // A
+    e.loc||'',                                                               // B
+    e.bin,                                                                   // C
+    '','',                                                                   // D,E
+    'each',                                                                  // F
+    e.isConflict ? e.exportDelta : e.delta,                                  // G: +/- qty
+    'GenQtyAdj',                                                             // H
+    e.isConflict ? 'Cycle Count - Partial (Alloc Conflict)'
+      : e.isMissing ? 'Cycle Count - Bin Missing (Add to Apprise)'
+      : 'Cycle Count',                                                       // I
+    ''                                                                       // J
   ]);
-  const d=new Date(),pad=n=>String(n).padStart(2,'0');
+
+  const d=new Date(), pad=n=>String(n).padStart(2,'0');
   const filename=`Apprise_CycleCount_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.xlsx`;
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(rows);
   const range=XLSX.utils.decode_range(ws['!ref']||'A1');
-  for(let R=0;R<=range.e.r;R++){const cell=XLSX.utils.encode_cell({r:R,c:2});if(ws[cell]){ws[cell].t='s';ws[cell].z='@';}}
-  ws['!cols']=[{wch:16},{wch:10},{wch:14},{wch:6},{wch:6},{wch:8},{wch:10},{wch:12},{wch:32},{wch:6}];
+  for(let R=0;R<=range.e.r;R++){
+    const cell=XLSX.utils.encode_cell({r:R,c:2});
+    if(ws[cell]){ws[cell].t='s';ws[cell].z='@';}
+  }
+  ws['!cols']=[{wch:16},{wch:10},{wch:14},{wch:6},{wch:6},{wch:8},{wch:10},{wch:12},{wch:36},{wch:6}];
   XLSX.utils.book_append_sheet(wb,ws,'Cycle Count');
   XLSX.writeFile(wb,filename);
-  showToast('ok','Exported!',`${rows.length} adjustments (${ccConflicts.length} partial conflicts).`);
-  if(dbReady&&db) db.collection('rtp_cc_exports').add({filename,exported_by:currentUser||'',total:rows.length,conflicts:ccConflicts.length,exported_at:firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>console.error(e));
+
+  showToast('ok','Exported!',
+    `${adjRows.length} adj · ${conflictRows.length} conflicts · ${missingRows.length} missing bins`);
+
+  if(dbReady&&db) db.collection('rtp_cc_exports').add({
+    filename, exported_by:currentUser||'',
+    adjustments:adjRows.length, conflicts:conflictRows.length, missing:missingRows.length,
+    exported_at:firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(e=>console.error(e));
 }
 // ══════════════════════════════════════════════════════════════
 // ── BOOT ──
