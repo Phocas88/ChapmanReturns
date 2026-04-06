@@ -238,7 +238,46 @@
   .drawer-pin-inline input:focus{border-color:var(--accent);}
   .drawer-pin-err{font-size:11px;color:var(--danger);min-height:14px;margin-top:6px;}
 
-  /* LIGHT THEME */
+  /* ── CYCLE COUNT ── */
+  .cc-phase{display:flex;flex-direction:column;gap:0;}
+  .cc-step-label{font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-bottom:7px;margin-top:16px;}
+  .cc-step-label:first-child{margin-top:0;}
+  .cc-upload-box{border:2px dashed var(--border);border-radius:12px;padding:28px 16px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s;}
+  .cc-upload-box:hover,.cc-upload-box.drag{border-color:var(--accent);background:var(--accent-dim);}
+  .cc-upload-icon{font-size:32px;margin-bottom:8px;}
+  .cc-upload-text{font-size:13px;font-weight:600;color:var(--text);}
+  .cc-upload-sub{font-size:11px;color:var(--text-dim);margin-top:4px;}
+  .cc-loaded-bar{display:flex;align-items:center;gap:10px;background:var(--success-dim);border:1px solid rgba(34,197,94,0.25);border-radius:10px;padding:10px 14px;margin-bottom:4px;}
+  .cc-loaded-bar .cc-lb-icon{font-size:18px;}
+  .cc-loaded-bar .cc-lb-text{font-size:12px;font-weight:600;color:var(--success);flex:1;}
+  .cc-loaded-bar .cc-lb-sub{font-size:11px;color:var(--text-dim);}
+  .cc-result-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;}
+  .cc-result-card.match{border-left:3px solid var(--success);}
+  .cc-result-card.over{border-left:3px solid var(--accent);}
+  .cc-result-card.short{border-left:3px solid var(--danger);}
+  .cc-result-card.conflict{border-left:3px solid var(--warn);background:var(--warn-dim);}
+  .cc-rc-info{flex:1;min-width:0;}
+  .cc-rc-pc{font-family:var(--mono);font-size:13px;font-weight:700;}
+  .cc-rc-bin{font-size:11px;color:var(--text-dim);margin-top:2px;}
+  .cc-rc-meta{font-size:11px;color:var(--text-dim);margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;}
+  .cc-rc-delta{font-family:var(--mono);font-size:18px;font-weight:700;text-align:right;min-width:48px;}
+  .cc-rc-delta.pos{color:var(--accent);}
+  .cc-rc-delta.neg{color:var(--danger);}
+  .cc-rc-delta.zero{color:var(--success);}
+  .cc-rc-del{background:none;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;padding:2px 4px;}
+  .cc-rc-del:hover{color:var(--danger);}
+  .cc-lookup-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;}
+  .cc-lookup-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:3px 0;}
+  .cc-lookup-label{color:var(--text-dim);}
+  .cc-lookup-val{font-family:var(--mono);font-weight:700;}
+  .cc-lookup-val.warn{color:var(--warn);}
+  .cc-tabs{display:flex;gap:4px;margin-bottom:10px;}
+  .cc-tab{flex:1;padding:7px 4px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;font-size:11px;font-weight:600;color:var(--text-dim);cursor:pointer;text-align:center;}
+  .cc-tab.active{background:var(--accent);color:#0a0e1a;border-color:var(--accent);}
+  .cc-conflict-item{background:var(--warn-dim);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 12px;margin-bottom:6px;font-size:12px;}
+  .cc-conflict-pc{font-family:var(--mono);font-weight:700;font-size:13px;}
+  .cc-empty{text-align:center;padding:32px 16px;color:var(--text-dim);font-size:13px;}
+
   body.light{
     --bg:#f0f4f8; --surface:#ffffff; --surface2:#e8edf3; --border:#d1d9e6;
     --text:#1a2235; --text-dim:#64748b; --text-muted:#94a3b8;
@@ -298,6 +337,7 @@
   <button class="tab-btn active" onclick="switchTab('scan')">📱 Scan</button>
   <button class="tab-btn" onclick="switchTab('queue')">📋 Queue<span class="tab-lock">🔒</span></button>
   <button class="tab-btn" onclick="switchTab('history')">🕒 History<span class="tab-lock">🔒</span></button>
+  <button class="tab-btn" onclick="switchTab('count')">🔢 Count<span class="tab-lock">🔒</span></button>
   <button class="tab-btn" onclick="switchTab('manager')">⚙️ Mgr<span class="tab-lock">🔒</span></button>
 </div>
 
@@ -447,6 +487,145 @@
   <div id="histContent">
     <div class="hist-empty">Set filters above and tap Search.</div>
   </div>
+</div>
+
+<!-- ═══ CYCLE COUNT TAB ═══ -->
+<div id="tab-count" class="main hidden">
+
+  <!-- Mode selector -->
+  <div class="cc-tabs" style="margin-bottom:14px;">
+    <div class="cc-tab active" id="ccModeTabScan" onclick="setCCMode('scan')">📱 Handheld — Scan</div>
+    <div class="cc-tab" id="ccModeTabMgr" onclick="setCCMode('manager')">🖥 Manager — Compare</div>
+  </div>
+
+  <!-- ── HANDHELD SCAN MODE ── -->
+  <div id="ccModeScan">
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
+      Walk the aisle. Scan each product, scan or type the bin, enter the qty you physically counted. All entries sync to Firebase so the manager can compare against the bin report.
+    </div>
+
+    <div class="fgroup">
+      <div class="frow item-loc-row">
+        <div class="ficon" style="background:var(--accent-dim);">📍</div>
+        <div class="flwrap">
+          <div class="flabel">Location / Brand <span style="font-size:9px;opacity:0.7;">(auto-detected)</span></div>
+          <select class="finput" id="ccLoc">
+            <option value="">— Select —</option>
+            <option value="BC">BC</option><option value="EE">EE</option>
+            <option value="FS">FS</option><option value="GT">GT</option>
+            <option value="NH">NH</option><option value="VP">VP</option>
+          </select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="ficon">🔍</div>
+        <div class="flwrap">
+          <div class="flabel">Product Code / UPC / GTIN</div>
+          <input class="finput" id="ccProduct" type="text" inputmode="text"
+            placeholder="Scan product…" autocomplete="off" autocorrect="off" spellcheck="false"
+            oninput="onCCProductInput()" onfocus="this.select()"
+            onkeydown="if(event.key==='Enter')document.getElementById('ccBin').focus();">
+        </div>
+        <span class="fbadge b-none" id="ccProductBadge">—</span>
+      </div>
+      <div class="frow">
+        <div class="ficon">📦</div>
+        <div class="flwrap">
+          <div class="flabel">Bin Location</div>
+          <input class="finput" id="ccBin" type="text" inputmode="text"
+            placeholder="Scan or type bin…" autocomplete="off" autocorrect="off" spellcheck="false"
+            onfocus="this.select()"
+            onkeydown="if(event.key==='Enter')document.getElementById('ccCounted').focus();">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="ficon wi">🔢</div>
+        <div class="flwrap">
+          <div class="flabel">Counted Qty</div>
+          <input class="finput" id="ccCounted" type="number" inputmode="numeric"
+            placeholder="0" min="0"
+            onkeydown="if(event.key==='Enter')addCountEntry();">
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="addCountEntry()">Record Count →</button>
+    <button class="btn btn-ghost" onclick="clearCCForm()">Clear</button>
+
+    <!-- Live count list -->
+    <div class="slabel" style="margin-top:16px;">This Session</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <div style="background:var(--surface2);border-radius:8px;padding:7px 12px;text-align:center;flex:1;font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);" id="ccScanCount">0</div>
+      <div style="flex:3;display:flex;align-items:center;font-size:11px;color:var(--text-dim);padding-left:4px;">items recorded · tap Refresh to update</div>
+      <button onclick="refreshCCEntries()" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;color:var(--text-dim);font-size:12px;padding:6px 12px;cursor:pointer;">🔄</button>
+    </div>
+    <div id="ccScanList"><div class="cc-empty">No entries yet.</div></div>
+  </div>
+
+  <!-- ── MANAGER COMPARE MODE ── -->
+  <div id="ccModeMgr" class="hidden">
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
+      Upload the Inventory Bin Report, then click Compare to calculate adjustments against what the team scanned. Export the Apprise file when ready.
+    </div>
+
+    <!-- Upload bin report -->
+    <div class="cc-step-label">1 — Upload Inventory Bin Report</div>
+    <div id="ccUploadBox" class="cc-upload-box" onclick="document.getElementById('ccFileInput').click()"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="event.preventDefault();this.classList.remove('drag');handleCCFile(event.dataTransfer.files[0])">
+      <div class="cc-upload-icon">📂</div>
+      <div class="cc-upload-text">Tap to upload Inventory Bin Report</div>
+      <div class="cc-upload-sub">Excel or CSV · Columns: A=Bin, B=Product Code, C=QOH, D=Allocated</div>
+    </div>
+    <input type="file" id="ccFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleCCFile(this.files[0])">
+    <div id="ccUploadErr" style="font-size:12px;color:var(--danger);min-height:14px;margin-top:4px;"></div>
+
+    <div id="ccLoadedBar" class="cc-loaded-bar hidden" style="margin-top:10px;">
+      <div class="cc-lb-icon">✅</div>
+      <div style="flex:1">
+        <div class="cc-lb-text" id="ccLoadedText">Bin report loaded</div>
+        <div class="cc-lb-sub" id="ccLoadedSub"></div>
+      </div>
+      <button onclick="resetCCUpload()" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:11px;padding:4px 10px;cursor:pointer;">↩ New Upload</button>
+    </div>
+
+    <!-- Compare button -->
+    <div class="cc-step-label" style="margin-top:16px;">2 — Compare &amp; Review</div>
+    <button class="btn btn-primary" onclick="runCCCompare()" style="margin-bottom:8px;">🔍 Compare Scanned vs Bin Report</button>
+    <div id="ccDateNote" style="font-size:11px;color:var(--text-dim);margin-bottom:12px;text-align:center;"></div>
+
+    <!-- Results summary -->
+    <div id="ccCompareResults" class="hidden">
+      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);" id="ccStatTotal">0</div>
+          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Scanned</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--success);" id="ccStatMatch">0</div>
+          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Match</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--danger);" id="ccStatAdj">0</div>
+          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Adjustments</div>
+        </div>
+        <div style="background:var(--warn-dim);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--warn);" id="ccStatConflict">0</div>
+          <div style="font-size:9px;color:var(--warn);text-transform:uppercase;letter-spacing:0.8px;">Conflicts</div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:8px;">⬇ Export Apprise XLSX</button>
+
+      <div class="cc-tabs">
+        <div class="cc-tab active" id="ccTabAdj" onclick="showCCView('adj')">📋 Adjustments</div>
+        <div class="cc-tab" id="ccTabConflict" onclick="showCCView('conflict')">⚠️ Ops Conflicts</div>
+      </div>
+      <div id="ccAdjList"></div>
+      <div id="ccConflictList" class="hidden"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ═══ MANAGER TAB ═══ -->
@@ -828,7 +1007,7 @@ function confirmUnknownProduct(){
 
 // ── PIN SYSTEM ──
 const PIN_HASH_KEY='rtp_pin_hash';
-const PROTECTED=['queue','history','manager'];
+const PROTECTED=['queue','history','manager','count'];
 let pinBuffer='', pinPendingTab=null, pinPendingCb=null;
 
 function hashPin(p){ let h=5381; for(let i=0;i<p.length;i++) h=((h<<5)+h)^p.charCodeAt(i); return (h>>>0).toString(36); }
@@ -901,10 +1080,11 @@ function switchTab(tab){
   reallySwitch(tab);
 }
 function reallySwitch(tab){
-  ['scan','queue','history','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
-  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','manager'][i]===tab));
+  ['scan','queue','history','count','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
+  document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','count','manager'][i]===tab));
   if(tab==='scan') setTimeout(focusProductField, 100);
   if(tab==='queue') fetchQueue();
+  if(tab==='count') initCountTab();
   if(tab==='manager') updateManagerUI();
 }
 
@@ -1284,6 +1464,289 @@ function showToast(type,title,msg,withActions=false,yesCb=null){
 }
 function dismissToast(){ document.getElementById('toast').classList.remove('show'); }
 
+// ══════════════════════════════════════════════════════════════
+// ── CYCLE COUNT ──
+// ══════════════════════════════════════════════════════════════
+let ccBinReport    = {};
+let ccBinLoaded    = false;
+let ccEntries      = [];
+let ccCompared     = [];
+let ccConflicts    = [];
+let ccMode         = 'scan';
+let ccListener     = null;
+
+function setCCMode(mode){
+  ccMode = mode;
+  document.getElementById('ccModeScan').classList.toggle('hidden', mode!=='scan');
+  document.getElementById('ccModeMgr').classList.toggle('hidden',  mode!=='manager');
+  document.getElementById('ccModeTabScan').classList.toggle('active', mode==='scan');
+  document.getElementById('ccModeTabMgr').classList.toggle('active',  mode==='manager');
+  if(mode==='scan') setTimeout(()=>document.getElementById('ccProduct').focus(),100);
+}
+
+function initCountTab(){
+  startCCListener();
+  renderCCScanList();
+}
+
+function onCCProductInput(){
+  const val   = document.getElementById('ccProduct').value.trim();
+  const badge = document.getElementById('ccProductBadge');
+  if(!val){ badge.textContent='—'; badge.className='fbadge b-none'; return; }
+  const found = lookupProduct(val);
+  if(found){
+    badge.textContent='✓'; badge.className='fbadge b-ok';
+    if(found.pc && found.pc!==val) document.getElementById('ccProduct').value=found.pc;
+    if(found.loc && !document.getElementById('ccLoc').value)
+      document.getElementById('ccLoc').value=found.loc;
+  } else {
+    badge.textContent='?'; badge.className='fbadge b-new';
+  }
+}
+
+async function addCountEntry(){
+  const loc     = document.getElementById('ccLoc').value;
+  const rawPc   = document.getElementById('ccProduct').value.trim();
+  const bin     = document.getElementById('ccBin').value.trim().toUpperCase();
+  const counted = parseInt(document.getElementById('ccCounted').value);
+  if(!loc)              { showToast('err','Missing Location','Select a location/brand.'); return; }
+  if(!rawPc)            { showToast('err','Missing Product','Scan or enter a product code.'); return; }
+  if(!bin)              { showToast('err','Missing Bin','Scan or enter the bin.'); return; }
+  if(isNaN(counted)||counted<0){ showToast('err','Invalid Qty','Enter 0 or more.'); return; }
+  const found = lookupProduct(rawPc);
+  const pc    = found ? found.pc : rawPc.toUpperCase();
+  const entry = { pc, bin, loc, counted, scanned_by: currentUser||'' };
+  if(dbReady&&db){
+    try{
+      await db.collection('rtp_cycle_count').add({...entry, scanned_at: firebase.firestore.FieldValue.serverTimestamp()});
+      showToast('ok','Recorded',`${pc} @ ${bin} · qty ${counted}`);
+    } catch(e){ console.error(e); showToast('err','DB Error',e.message); return; }
+  } else {
+    ccEntries.push({...entry, scanned_at:new Date(), id:Date.now()});
+    renderCCScanList();
+    showToast('ok','Recorded (local)',`${pc} @ ${bin} · qty ${counted}`);
+  }
+  clearCCForm();
+}
+
+function clearCCForm(){
+  document.getElementById('ccProduct').value='';
+  document.getElementById('ccBin').value='';
+  document.getElementById('ccCounted').value='';
+  document.getElementById('ccProductBadge').textContent='—';
+  document.getElementById('ccProductBadge').className='fbadge b-none';
+  document.getElementById('ccProduct').focus();
+}
+
+function startCCListener(){
+  if(!dbReady||!db) return;
+  if(ccListener) ccListener();
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  ccListener = db.collection('rtp_cycle_count')
+    .where('scanned_at','>=',todayStart)
+    .orderBy('scanned_at','asc')
+    .onSnapshot(snap=>{
+      ccEntries = snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
+      renderCCScanList();
+    }, e=>console.error('CC listener:',e));
+}
+
+function refreshCCEntries(){
+  if(ccListener){ ccListener(); ccListener=null; }
+  startCCListener();
+}
+
+function renderCCScanList(){
+  document.getElementById('ccScanCount').textContent = ccEntries.length;
+  const el = document.getElementById('ccScanList');
+  if(!ccEntries.length){ el.innerHTML='<div class="cc-empty">No entries yet. Start scanning.</div>'; return; }
+  const sorted = [...ccEntries].reverse();
+  el.innerHTML = sorted.map(e=>{
+    const ts = e.scanned_at?.toDate ? e.scanned_at.toDate() : new Date(e.scanned_at||Date.now());
+    const t  = ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    return `<div class="cc-result-card" style="border-left:3px solid var(--accent);">
+      <div class="cc-rc-info">
+        <div class="cc-rc-pc">${e.pc}</div>
+        <div class="cc-rc-bin">📦 ${e.bin} · <span style="color:var(--accent)">${e.loc||''}</span></div>
+        <div class="cc-rc-meta">
+          <span>Counted: <strong>${e.counted}</strong></span>
+          ${e.scanned_by?`<span>👤 ${e.scanned_by}</span>`:''}
+          <span>${t}</span>
+        </div>
+      </div>
+      <button class="cc-rc-del" onclick="deleteCCEntry('${e.firebaseId||e.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function deleteCCEntry(id){
+  if(!confirm('Remove this count entry?')) return;
+  if(dbReady&&db&&id) db.collection('rtp_cycle_count').doc(id).delete().catch(e=>console.error(e));
+  else { ccEntries=ccEntries.filter(e=>String(e.id||e.firebaseId)!==String(id)); renderCCScanList(); }
+}
+
+function handleCCFile(file){
+  if(!file) return;
+  const err = document.getElementById('ccUploadErr');
+  err.textContent='';
+  const reader = new FileReader();
+  reader.onload = e=>{
+    try{
+      let rows=[];
+      if(file.name.toLowerCase().endsWith('.csv')){
+        rows = e.target.result.split('\n').map(r=>r.split(',').map(c=>c.trim().replace(/^"|"$/g,'')));
+      } else {
+        const wb = XLSX.read(e.target.result,{type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      }
+      parseCCBinReport(rows);
+    } catch(ex){ err.textContent='Could not read file: '+ex.message; }
+  };
+  if(file.name.toLowerCase().endsWith('.csv')) reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+  document.getElementById('ccFileInput').value='';
+}
+
+function parseCCBinReport(rows){
+  const err = document.getElementById('ccUploadErr');
+  ccBinReport={};
+  let count=0, skipped=0;
+  const start = (rows[0]&&isNaN(parseFloat(rows[0][2]))) ? 1 : 0;
+  for(let i=start;i<rows.length;i++){
+    const r=rows[i];
+    if(!r||r.length<3) continue;
+    const bin=String(r[0]||''). trim();
+    const pc=String(r[1]||''). trim();
+    const qoh=parseFloat(r[2])||0;
+    const alloc=parseFloat(r[3])||0;
+    if(!bin||!pc){skipped++;continue;}
+    const key=pc.toUpperCase()+'|'+bin.toUpperCase();
+    ccBinReport[key]={pc,bin,qoh,alloc,available:Math.max(0,qoh-alloc)};
+    count++;
+  }
+  if(!count){ err.textContent='No valid rows found. Check columns: A=Bin, B=Product Code, C=QOH, D=Allocated.'; return; }
+  ccBinLoaded=true;
+  document.getElementById('ccUploadBox').style.display='none';
+  document.getElementById('ccLoadedBar').classList.remove('hidden');
+  document.getElementById('ccLoadedText').textContent=`${count} product-bin records loaded`;
+  document.getElementById('ccLoadedSub').textContent=`${Object.keys(ccBinReport).length} unique bin-product pairs · ${skipped} rows skipped`;
+}
+
+function resetCCUpload(){
+  ccBinReport={}; ccBinLoaded=false; ccCompared=[]; ccConflicts=[];
+  document.getElementById('ccUploadBox').style.display='';
+  document.getElementById('ccLoadedBar').classList.add('hidden');
+  document.getElementById('ccCompareResults').classList.add('hidden');
+  document.getElementById('ccUploadErr').textContent='';
+}
+
+async function runCCCompare(){
+  if(!ccBinLoaded){ showToast('err','No Bin Report','Upload the Inventory Bin Report first.'); return; }
+  if(!ccEntries.length && dbReady && db){
+    const todayStart=new Date(); todayStart.setHours(0,0,0,0);
+    const snap=await db.collection('rtp_cycle_count').where('scanned_at','>=',todayStart).orderBy('scanned_at','asc').get();
+    ccEntries=snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
+  }
+  if(!ccEntries.length){ showToast('warn','No Counts','No scanned entries found for today.'); return; }
+  ccCompared=[]; ccConflicts=[];
+  const scanned={};
+  for(const e of ccEntries){
+    const key=(e.pc||''). toUpperCase()+'|'+(e.bin||''). toUpperCase();
+    scanned[key]=e;
+  }
+  for(const [key,scanEntry] of Object.entries(scanned)){
+    const binRec=ccBinReport[key];
+    const qoh  =binRec?binRec.qoh:null;
+    const alloc=binRec?binRec.alloc:0;
+    const avail=binRec?binRec.available:null;
+    const delta=qoh!==null?scanEntry.counted-qoh:null;
+    const result={pc:scanEntry.pc,bin:scanEntry.bin,loc:scanEntry.loc||'',counted:scanEntry.counted,qoh,alloc,avail,delta,scanned_by:scanEntry.scanned_by||'',isConflict:false,conflictNote:'',exportDelta:delta};
+    if(delta!==null&&delta<0&&alloc>0&&scanEntry.counted<alloc){
+      result.isConflict=true;
+      result.exportDelta=-(avail);
+      result.conflictNote=`Counted ${scanEntry.counted} is below allocated ${alloc}. Max adjustment: ${result.exportDelta} (to ${alloc}). Remainder needs ops to cancel order.`;
+      ccConflicts.push(result);
+    } else { ccCompared.push(result); }
+  }
+  renderCCCompareResults();
+  document.getElementById('ccCompareResults').classList.remove('hidden');
+  const ts=new Date();
+  document.getElementById('ccDateNote').textContent=`Compared ${ccEntries.length} entries against ${Object.keys(ccBinReport).length} bin report records · ${ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+}
+
+function renderCCCompareResults(){
+  const matches=ccCompared.filter(e=>e.delta===0).length;
+  const adjs=ccCompared.filter(e=>e.delta!==null&&e.delta!==0).length;
+  document.getElementById('ccStatTotal').textContent=ccCompared.length+ccConflicts.length;
+  document.getElementById('ccStatMatch').textContent=matches;
+  document.getElementById('ccStatAdj').textContent=adjs;
+  document.getElementById('ccStatConflict').textContent=ccConflicts.length;
+  const adjEl=document.getElementById('ccAdjList');
+  if(!ccCompared.length){ adjEl.innerHTML='<div class="cc-empty">No adjustments — all matched or no bin report overlap.</div>'; }
+  else adjEl.innerHTML=ccCompared.map(e=>{
+    const d=e.delta;
+    const cls=d===null?'':(d===0?'match':d>0?'over':'short');
+    const dLabel=d===null?'(not in report)':(d===0?'✓ Match':d>0?`+${d}`:String(d));
+    const dCls=d===null||d===0?'zero':d>0?'pos':'neg';
+    return `<div class="cc-result-card ${cls}">
+      <div class="cc-rc-info">
+        <div class="cc-rc-pc">${e.pc}</div>
+        <div class="cc-rc-bin">📦 ${e.bin} · <span style="color:var(--accent)">${e.loc}</span></div>
+        <div class="cc-rc-meta">
+          <span>System: ${e.qoh??'—'}</span><span>Counted: ${e.counted}</span>
+          ${e.alloc?`<span style="color:var(--warn)">Alloc: ${e.alloc}</span>`:''}
+          ${e.scanned_by?`<span>👤 ${e.scanned_by}</span>`:''}
+        </div>
+      </div>
+      <div class="cc-rc-delta ${dCls}">${dLabel}</div>
+    </div>`;
+  }).join('');
+  const conEl=document.getElementById('ccConflictList');
+  if(!ccConflicts.length){ conEl.innerHTML='<div class="cc-empty">No allocation conflicts. ✓</div>'; }
+  else conEl.innerHTML='<div style="font-size:12px;color:var(--warn);margin-bottom:10px;line-height:1.5;background:var(--warn-dim);border-radius:8px;padding:10px 12px;">⚠ These bins cannot be fully adjusted due to allocated qty. Partial adjustment is included in the export. Ops must cancel the associated order for the remaining delta.</div>'
+    +ccConflicts.map(e=>`<div class="cc-conflict-item">
+      <div class="cc-conflict-pc">${e.pc} <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim);">@ ${e.bin}</span></div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px;line-height:1.5;">${e.conflictNote}</div>
+      <div style="font-size:11px;margin-top:4px;display:flex;gap:12px;flex-wrap:wrap;">
+        <span>System: <strong>${e.qoh}</strong></span><span>Counted: <strong>${e.counted}</strong></span>
+        <span style="color:var(--warn)">Allocated: <strong>${e.alloc}</strong></span>
+        <span style="color:var(--danger)">Export Δ: <strong>${e.exportDelta}</strong></span>
+      </div>
+    </div>`).join('');
+}
+
+function showCCView(view){
+  document.getElementById('ccAdjList').classList.toggle('hidden',view!=='adj');
+  document.getElementById('ccConflictList').classList.toggle('hidden',view!=='conflict');
+  document.getElementById('ccTabAdj').classList.toggle('active',view==='adj');
+  document.getElementById('ccTabConflict').classList.toggle('active',view==='conflict');
+}
+
+function exportCycleCount(){
+  const adjustable=[...ccCompared.filter(e=>typeof e.delta==='number'&&e.delta!==0),
+                    ...ccConflicts.filter(e=>typeof e.exportDelta==='number'&&e.exportDelta!==0)];
+  if(!adjustable.length){ showToast('err','Nothing to Export','No adjustments found. Matches excluded.'); return; }
+  const rows=adjustable.map(e=>[
+    e.pc, e.loc||'', e.bin, '','', 'each',
+    e.isConflict?e.exportDelta:e.delta,
+    'GenQtyAdj',
+    e.isConflict?'Cycle Count - Partial (Alloc Conflict)':'Cycle Count',
+    ''
+  ]);
+  const d=new Date(),pad=n=>String(n).padStart(2,'0');
+  const filename=`Apprise_CycleCount_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.xlsx`;
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  const range=XLSX.utils.decode_range(ws['!ref']||'A1');
+  for(let R=0;R<=range.e.r;R++){const cell=XLSX.utils.encode_cell({r:R,c:2});if(ws[cell]){ws[cell].t='s';ws[cell].z='@';}}
+  ws['!cols']=[{wch:16},{wch:10},{wch:14},{wch:6},{wch:6},{wch:8},{wch:10},{wch:12},{wch:32},{wch:6}];
+  XLSX.utils.book_append_sheet(wb,ws,'Cycle Count');
+  XLSX.writeFile(wb,filename);
+  showToast('ok','Exported!',`${rows.length} adjustments (${ccConflicts.length} partial conflicts).`);
+  if(dbReady&&db) db.collection('rtp_cc_exports').add({filename,exported_by:currentUser||'',total:rows.length,conflicts:ccConflicts.length,exported_at:firebase.firestore.FieldValue.serverTimestamp()}).catch(e=>console.error(e));
+}
+// ══════════════════════════════════════════════════════════════
 // ── BOOT ──
 initFirebase();
 refreshPinCard();
