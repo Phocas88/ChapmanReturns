@@ -936,20 +936,22 @@ async function clearHistory(){
 // lookupAcrossAllLocs now merged into lookupProduct above
 function lookupAcrossAllLocs(val){ return lookupProduct(val); }
 
-function lookupProduct(val){
+function lookupProduct(val, hintLoc){
+  // hintLoc: optional preferred division (used by RTP scan tab)
+  // If not provided, searches all divisions and returns the DB-authoritative one
   if(!val) return null;
   const v=val.trim(), up=v.toUpperCase();
-  const itemLoc=getItemLoc();
-  // 1. Try exact product code match in selected location first
+  const itemLoc = hintLoc || null; // do NOT read fLoc here — caller passes it if needed
+
+  // 1. Try exact product code match in hinted location first
   if(itemLoc){
     const locData=PRODUCT_DB[itemLoc];
     if(locData){
-      for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {pc,...info,isNew:false};
-      // Try UPC/GTIN in selected location
-      const hits=upcIndex[v]; if(hits){ const h=hits.find(x=>x.loc===itemLoc); if(h) return {pc:h.pc,...locData[h.pc],isNew:false}; }
+      for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {pc,loc:itemLoc,...info,isNew:false};
+      const hits=upcIndex[v]; if(hits){ const h=hits.find(x=>x.loc===itemLoc); if(h) return {pc:h.pc,loc:itemLoc,...locData[h.pc],isNew:false}; }
     }
   }
-  // 2. Try exact product code across all locations
+  // 2. Try exact product code across all locations — return authoritative division from DB
   for(const loc of LOCATIONS){
     const locData=PRODUCT_DB[loc]; if(!locData) continue;
     for(const [pc,info] of Object.entries(locData)) if(pc.toUpperCase()===up) return {pc,loc,...info,isNew:false};
@@ -965,10 +967,9 @@ function onProductInput(){
   const badge=document.getElementById('productBadge'), sug=document.getElementById('binSuggest');
   dismissUnknownBanner();
   if(!val){ badge.textContent='—'; badge.className='fbadge b-none'; sug.classList.add('hidden'); return; }
-  const r=lookupProduct(val);
+  const r=lookupProduct(val, getItemLoc()); // pass current loc as hint for RTP tab
   if(r){
     badge.textContent='✓ FOUND'; badge.className='fbadge b-ok';
-    // Auto-select location if found in DB and location not manually set
     autoSetLocation(r.loc);
     if(r.b){ document.getElementById('suggestedBinVal').textContent=r.b; sug.classList.remove('hidden'); }
     else sug.classList.add('hidden');
@@ -1109,7 +1110,7 @@ function addToQueue(){
   if(!rawProd){ showToast('err','Missing Product','Enter or scan a product code.'); return; }
   if(!qty||qty<1){ showToast('err','Invalid Qty','Enter a quantity ≥ 1.'); return; }
   if(!bin){ showToast('err','Missing Bin','Enter a bin location.'); return; }
-  const r=lookupProduct(rawProd);
+  const r=lookupProduct(rawProd, itemLoc);
   if(!r){
     // Show red banner instead of toast
     showUnknownBanner(rawProd, itemLoc, makeItem(rawProd,qty,bin,itemLoc,true,currentUser));
