@@ -819,18 +819,25 @@
           <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:#a78bfa;" id="ccStatMissing">0</div>
           <div style="font-size:9px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.8px;">Bin Missing</div>
         </div>
+        <div style="background:var(--danger-dim);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--danger);" id="ccStatNotCounted">0</div>
+          <div style="font-size:9px;color:var(--danger);text-transform:uppercase;letter-spacing:0.8px;">Not Counted</div>
+        </div>
       </div>
 
-      <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:8px;">⬇ Export Apprise XLSX</button>
+      <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:6px;">⬇ Export Apprise XLSX</button>
+      <button class="btn" onclick="exportOpsConflicts()" style="background:var(--warn-dim);color:var(--warn);border:1px solid rgba(245,158,11,0.4);margin-bottom:8px;">⚠ Export Ops Conflicts Report</button>
 
       <div class="cc-tabs">
         <div class="cc-tab active" id="ccTabAdj" onclick="showCCView('adj')">📋 Adjustments</div>
         <div class="cc-tab" id="ccTabConflict" onclick="showCCView('conflict')">⚠️ Ops Conflicts</div>
         <div class="cc-tab" id="ccTabMissing" onclick="showCCView('missing')">📍 Bin Missing</div>
+        <div class="cc-tab" id="ccTabNotCounted" onclick="showCCView('notcounted')">🔴 Not Counted</div>
       </div>
       <div id="ccAdjList"></div>
       <div id="ccConflictList" class="hidden"></div>
       <div id="ccMissingList" class="hidden"></div>
+      <div id="ccNotCountedList" class="hidden"></div>
     </div>
   </div>
 
@@ -1973,6 +1980,7 @@ let ccEntries      = [];
 let ccCompared     = [];
 let ccConflicts    = [];
 let ccMissing      = [];
+let ccNotCounted   = []; // items in bin report with no matching scan → full subtract
 let ccMode         = 'scan';
 let ccListener     = null;
 
@@ -2175,7 +2183,7 @@ function parseCCBinReport(rows){
 }
 
 function resetCCUpload(){
-  ccBinReport={}; ccBinLoaded=false; ccCompared=[]; ccConflicts=[]; ccMissing=[];
+  ccBinReport={}; ccBinLoaded=false; ccCompared=[]; ccConflicts=[]; ccMissing=[]; ccNotCounted=[];
   document.getElementById('ccUploadBox').style.display='';
   document.getElementById('ccLoadedBar').classList.add('hidden');
   document.getElementById('ccCompareResults').classList.add('hidden');
@@ -2193,7 +2201,7 @@ async function runCCCompare(){
   }
   if(!ccEntries.length){ showToast('warn','No Counts','No scanned entries found for today.'); return; }
 
-  ccCompared=[]; ccConflicts=[]; ccMissing=[];
+  ccCompared=[]; ccConflicts=[]; ccMissing=[]; ccNotCounted=[];
 
   // Last scan wins per PC|BIN key
   const scanned={};
@@ -2202,22 +2210,17 @@ async function runCCCompare(){
     scanned[key]=e;
   }
 
+  // ── Forward pass: scanned entries vs bin report ──
   for(const [key,scanEntry] of Object.entries(scanned)){
     const binRec = ccBinReport[key];
 
-    // ── BIN NOT IN REPORT FOR THIS DIVISION ──
-    // Treat as adding from zero: delta = +counted, goes into Bin Missing list AND export
     if(!binRec){
+      // Scanned but not in report → Bin Missing (+counted from zero)
       ccMissing.push({
-        pc: scanEntry.pc,
-        bin: scanEntry.bin,
-        loc: scanEntry.loc||'',
-        counted: scanEntry.counted,
-        qoh: 0,
-        delta: scanEntry.counted,        // +counted (adding from 0)
-        exportDelta: scanEntry.counted,
-        scanned_by: scanEntry.scanned_by||'',
-        isMissing: true
+        pc: scanEntry.pc, bin: scanEntry.bin, loc: scanEntry.loc||'',
+        counted: scanEntry.counted, qoh: 0,
+        delta: scanEntry.counted, exportDelta: scanEntry.counted,
+        scanned_by: scanEntry.scanned_by||'', isMissing: true
       });
       continue;
     }
@@ -2233,14 +2236,54 @@ async function runCCCompare(){
       isConflict: false, conflictNote: '', exportDelta: delta
     };
 
-    // Allocation conflict: reducing below allocated qty
     if(delta < 0 && alloc > 0 && scanEntry.counted < alloc){
       result.isConflict  = true;
-      result.exportDelta = -(avail);  // max allowable reduction
+      result.exportDelta = -(avail);
       result.conflictNote= `Counted ${scanEntry.counted} is below allocated ${alloc}. Max adjustment: ${result.exportDelta} (to ${alloc}). Remainder needs ops to cancel order.`;
       ccConflicts.push(result);
     } else {
       ccCompared.push(result);
+    }
+  }
+
+  // ── Reverse pass: bin report items with NO matching scan → subtract full QOH ──
+  for(const [key, binRec] of Object.entries(ccBinReport)){
+    if(scanned[key]) continue; // already handled above
+
+    // Item exists in system but was never counted → treat counted as 0, delta = -QOH
+    const delta      = -binRec.qoh;             // subtract everything
+    const alloc      = binRec.alloc;
+    const avail      = binRec.available;        // qoh - alloc = max we can reduce
+    const exportDelta = -(avail);               // can only subtract down to alloc
+
+    const result = {
+      pc:       binRec.pc,
+      bin:      binRec.bin,
+      loc:      '', // location not known from bin report alone — will be looked up
+      counted:  0,
+      qoh:      binRec.qoh,
+      alloc,
+      avail,
+      delta,
+      scanned_by: '',
+      isNotCounted: true,
+      exportDelta,
+    };
+
+    // Try to resolve location from product DB
+    const found = lookupProduct(binRec.pc);
+    if(found) result.loc = found.loc;
+
+    // Check if subtracting to zero would conflict with allocation
+    if(alloc > 0){
+      // Can't go below alloc — this is a conflict too
+      result.isConflict   = true;
+      result.conflictNote = `Item not counted (assumed 0). System shows ${binRec.qoh} with ${alloc} allocated. Max adjustment: ${exportDelta} (to ${alloc}). Remainder needs ops to cancel order.`;
+      ccConflicts.push(result);
+    } else {
+      // No allocation — safe to subtract full QOH
+      result.exportDelta = delta; // full subtract
+      ccNotCounted.push(result);
     }
   }
 
@@ -2254,13 +2297,14 @@ async function runCCCompare(){
 function renderCCCompareResults(){
   const matches = ccCompared.filter(e=>e.delta===0).length;
   const adjs    = ccCompared.filter(e=>e.delta!==0).length;
-  const total   = ccCompared.length + ccConflicts.length + ccMissing.length;
+  const total   = ccCompared.length + ccConflicts.length + ccMissing.length + ccNotCounted.length;
 
-  document.getElementById('ccStatTotal').textContent    = total;
-  document.getElementById('ccStatMatch').textContent    = matches;
-  document.getElementById('ccStatAdj').textContent      = adjs;
-  document.getElementById('ccStatConflict').textContent = ccConflicts.length;
-  document.getElementById('ccStatMissing').textContent  = ccMissing.length;
+  document.getElementById('ccStatTotal').textContent       = total;
+  document.getElementById('ccStatMatch').textContent       = matches;
+  document.getElementById('ccStatAdj').textContent         = adjs;
+  document.getElementById('ccStatConflict').textContent    = ccConflicts.length;
+  document.getElementById('ccStatMissing').textContent     = ccMissing.length;
+  document.getElementById('ccStatNotCounted').textContent  = ccNotCounted.length;
 
   // ── Adjustments list ──
   const adjEl = document.getElementById('ccAdjList');
@@ -2335,48 +2379,68 @@ function renderCCCompareResults(){
   }
 }
 
-function showCCView(view){
-  document.getElementById('ccAdjList').classList.toggle('hidden',    view!=='adj');
-  document.getElementById('ccConflictList').classList.toggle('hidden', view!=='conflict');
-  document.getElementById('ccMissingList').classList.toggle('hidden',  view!=='missing');
-  document.getElementById('ccTabAdj').classList.toggle('active',      view==='adj');
-  document.getElementById('ccTabConflict').classList.toggle('active',  view==='conflict');
-  document.getElementById('ccTabMissing').classList.toggle('active',   view==='missing');
+  // ── Not Counted list ──
+  const ncEl = document.getElementById('ccNotCountedList');
+  if(!ccNotCounted.length){
+    ncEl.innerHTML='<div class="cc-empty">No uncounted items. All bin report items were scanned. ✓</div>';
+  } else {
+    ncEl.innerHTML=
+      `<div style="font-size:12px;color:var(--danger);margin-bottom:10px;line-height:1.5;background:var(--danger-dim);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 12px;">
+        🔴 These items appear in the Inventory Bin Report but were <strong>not scanned</strong> during the cycle count. The full QOH is subtracted automatically (counted = 0). Items with allocation conflicts are shown in the Ops Conflicts tab instead.
+      </div>`
+      + ccNotCounted.map(e=>`<div class="cc-result-card short">
+          <div class="cc-rc-info">
+            <div class="cc-rc-pc">${e.pc}</div>
+            <div class="cc-rc-bin">📦 ${e.bin}${e.loc?` · <span style="color:var(--accent)">${e.loc}</span>`:''}</div>
+            <div class="cc-rc-meta">
+              <span>System: <strong>${e.qoh}</strong></span>
+              <span>Counted: <strong>0</strong> (not scanned)</span>
+            </div>
+          </div>
+          <div class="cc-rc-delta neg">${e.exportDelta}</div>
+        </div>`).join('');
+  }
 }
 
-// ── CC Export fingerprint helpers ──
-let ccLastExportFp = null;
-let ccLastExportFile = null;
-let ccLastExportTime = null;
+function showCCView(view){
+  document.getElementById('ccAdjList').classList.toggle('hidden',        view!=='adj');
+  document.getElementById('ccConflictList').classList.toggle('hidden',   view!=='conflict');
+  document.getElementById('ccMissingList').classList.toggle('hidden',    view!=='missing');
+  document.getElementById('ccNotCountedList').classList.toggle('hidden', view!=='notcounted');
+  document.getElementById('ccTabAdj').classList.toggle('active',         view==='adj');
+  document.getElementById('ccTabConflict').classList.toggle('active',    view==='conflict');
+  document.getElementById('ccTabMissing').classList.toggle('active',     view==='missing');
+  document.getElementById('ccTabNotCounted').classList.toggle('active',  view==='notcounted');
+}
 
 function getCCExportFingerprint(){
-  const all = [...ccCompared, ...ccConflicts, ...ccMissing];
+  const all = [...ccCompared, ...ccConflicts, ...ccMissing, ...ccNotCounted];
   return all.map(e=>`${e.pc}|${e.bin}|${e.delta??e.exportDelta}`).sort().join('::');
 }
 
 function exportCycleCount(){
-  const adjRows      = ccCompared.filter(e=>e.delta!==0);
-  const conflictRows = ccConflicts;
-  const missingRows  = ccMissing;
-  const allExport    = [...adjRows, ...conflictRows, ...missingRows];
+  const adjRows        = ccCompared.filter(e=>e.delta!==0);
+  const conflictRows   = ccConflicts;
+  const missingRows    = ccMissing;
+  const notCountedRows = ccNotCounted;
+  const allExport      = [...adjRows, ...conflictRows, ...missingRows, ...notCountedRows];
 
   if(!allExport.length){ showToast('err','Nothing to Export','No adjustments found. Matches excluded.'); return; }
 
   const fp = getCCExportFingerprint();
 
-  // Duplicate safeguard — require PIN if same results already exported
   if(ccLastExportFp && ccLastExportFp === fp){
     const when = ccLastExportTime ? ccLastExportTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : 'earlier';
     if(pinIsSet() && !sessionOk()){
-      openPinOverlay(null, `Already exported at ${when}. Enter PIN to re-print.`, ()=>doExportCycleCount(allExport, adjRows, conflictRows, missingRows));
+      openPinOverlay(null, `Already exported at ${when}. Enter PIN to re-print.`, ()=>doExportCycleCount(allExport, adjRows, conflictRows, missingRows, notCountedRows));
       return;
     }
     if(!confirm(`⚠ These results were already exported at ${when}.\nFile: ${ccLastExportFile}\nRe-print anyway?`)) return;
   }
-  doExportCycleCount(allExport, adjRows, conflictRows, missingRows);
+  doExportCycleCount(allExport, adjRows, conflictRows, missingRows, notCountedRows);
 }
 
-async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows){
+async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows, notCountedRows){
   const rows = allExport.map(e=>[
     e.pc,
     e.loc||'',
@@ -2385,8 +2449,9 @@ async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows)
     'each',
     e.isConflict ? e.exportDelta : e.delta,
     'GenQtyAdj',
-    e.isConflict ? 'Cycle Count - Partial (Alloc Conflict)'
+    e.isConflict    ? 'Cycle Count - Partial (Alloc Conflict)'
       : e.isMissing ? 'Cycle Count - Bin Missing (Add to Apprise)'
+      : e.isNotCounted ? 'Cycle Count - Not Counted (Full Subtract)'
       : 'Cycle Count',
     ''
   ]);
@@ -2404,15 +2469,13 @@ async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows)
   XLSX.utils.book_append_sheet(wb,ws,'Cycle Count');
   XLSX.writeFile(wb,filename);
 
-  // Record fingerprint for duplicate detection
   ccLastExportFp   = getCCExportFingerprint();
   ccLastExportFile = filename;
   ccLastExportTime = new Date();
 
   showToast('ok','Exported — Archiving…',
-    `${adjRows.length} adj · ${conflictRows.length} conflicts · ${missingRows.length} missing bins`);
+    `${adjRows.length} adj · ${conflictRows.length} conflicts · ${notCountedRows.length} not counted · ${missingRows.length} missing bins`);
 
-  // Archive: move rtp_cycle_count entries → rtp_cc_archive, then delete originals
   if(dbReady&&db){
     try{
       const snap = await db.collection('rtp_cycle_count').get();
@@ -2427,15 +2490,125 @@ async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows)
         await archiveBatch.commit();
         showToast('ok','Archived',`${snap.size} count entries moved to archive.`);
       }
-      // Log the export
       await db.collection('rtp_cc_exports').add({
         filename, exported_by:currentUser||'',
-        adjustments:adjRows.length, conflicts:conflictRows.length, missing:missingRows.length,
+        adjustments:adjRows.length, conflicts:conflictRows.length,
+        missing:missingRows.length, not_counted:notCountedRows.length,
         exported_at:firebase.firestore.FieldValue.serverTimestamp()
       });
-    } catch(e){ console.error(e); showToast('warn','Archive Warning','Export saved but could not archive entries: '+e.message); }
+    } catch(e){ console.error(e); showToast('warn','Archive Warning','Export saved but could not archive: '+e.message); }
   }
 }
+// ── OPS CONFLICTS REPORT ──
+function exportOpsConflicts(){
+  if(!ccConflicts.length){
+    showToast('err','No Conflicts','No allocation conflicts found in this comparison.');
+    return;
+  }
+
+  const d=new Date(), pad=n=>String(n).padStart(2,'0');
+  const dateStr=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const timeStr=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const filename=`OpsConflicts_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.xlsx`;
+
+  const wb = XLSX.utils.book_new();
+
+  // ── Sheet 1: Ops Action List ──
+  // One row per conflict — what ops needs to do
+  const actionHeader = [
+    'Product Code',
+    'Location',
+    'Bin',
+    'System QOH',
+    'Qty Allocated',
+    'Qty Counted',
+    'Max Adj Applied',       // what went into apprise (down to alloc)
+    'Remaining Shortfall',   // what still needs to be fixed after order cancel
+    'Action Required',
+    'Scanned By',
+    'Report Date'
+  ];
+
+  const actionRows = ccConflicts.map(e=>{
+    const remaining = e.counted - e.alloc; // how far below alloc they counted (negative)
+    return [
+      e.pc,
+      e.loc||'',
+      e.bin,
+      e.qoh,
+      e.alloc,
+      e.counted,
+      e.exportDelta,          // negative number — partial adj already in Apprise
+      remaining,              // additional adj needed after order cancel (also negative)
+      `Cancel order allocating ${e.alloc} units, then adjust remaining ${remaining} qty`,
+      e.scanned_by||'',
+      dateStr+' '+timeStr
+    ];
+  });
+
+  const ws1 = XLSX.utils.aoa_to_sheet([actionHeader, ...actionRows]);
+
+  // Force bin col (C, index 2) as text
+  const range1 = XLSX.utils.decode_range(ws1['!ref']||'A1');
+  for(let R=1;R<=range1.e.r;R++){
+    const cell=XLSX.utils.encode_cell({r:R,c:2});
+    if(ws1[cell]){ws1[cell].t='s';ws1[cell].z='@';}
+  }
+
+  // Column widths
+  ws1['!cols']=[
+    {wch:16},{wch:10},{wch:14},{wch:12},{wch:14},{wch:12},
+    {wch:16},{wch:18},{wch:55},{wch:16},{wch:18}
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws1, 'Ops Action List');
+
+  // ── Sheet 2: Summary ──
+  const totalShortfall = ccConflicts.reduce((s,e)=>s+(e.counted-e.alloc),0);
+  const totalPartialAdj = ccConflicts.reduce((s,e)=>s+(e.exportDelta||0),0);
+  const notCountedConflicts = ccConflicts.filter(e=>e.isNotCounted).length;
+  const scannedConflicts    = ccConflicts.filter(e=>!e.isNotCounted).length;
+  const divBreakdown = {};
+  ccConflicts.forEach(e=>{ divBreakdown[e.loc||'?']=(divBreakdown[e.loc||'?']||0)+1; });
+
+  const summaryRows = [
+    ['OPS ALLOCATION CONFLICT REPORT',''],
+    ['Generated',''+dateStr+' '+timeStr],
+    ['Generated By', currentUser||''],
+    ['',''],
+    ['SUMMARY',''],
+    ['Total Conflicts', ccConflicts.length],
+    ['  — Scanned below alloc', scannedConflicts],
+    ['  — Not counted (assumed 0)', notCountedConflicts],
+    ['Partial Adj Applied to Apprise', totalPartialAdj],
+    ['Total Remaining Shortfall', totalShortfall],
+    ['',''],
+    ['BY DIVISION',''],
+    ...Object.entries(divBreakdown).map(([loc,cnt])=>[loc, cnt+' conflict(s)']),
+    ['',''],
+    ['NEXT STEPS',''],
+    ['1','Review Ops Action List tab — one row per conflict'],
+    ['2','For each item, identify and cancel the order allocating qty at that bin'],
+    ['3','Once order is cancelled, re-run a cycle count on those bins'],
+    ['4','A new Apprise import will apply the remaining adjustment'],
+  ];
+
+  const ws2 = XLSX.utils.aoa_to_sheet(summaryRows);
+  ws2['!cols']=[{wch:32},{wch:40}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
+
+  XLSX.writeFile(wb, filename);
+  showToast('ok','Ops Report Downloaded',`${ccConflicts.length} conflict(s) · ${filename}`);
+
+  // Log to Firebase
+  if(dbReady&&db) db.collection('rtp_cc_exports').add({
+    filename, type:'ops_conflicts',
+    conflict_count: ccConflicts.length,
+    exported_by: currentUser||'',
+    exported_at: firebase.firestore.FieldValue.serverTimestamp()
+  }).catch(e=>console.error(e));
+}
+
 // ══════════════════════════════════════════════════════════════
 // ── BOOT ──
 initFirebase();
