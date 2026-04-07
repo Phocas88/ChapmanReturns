@@ -356,6 +356,20 @@
   .kbd-mode-row{display:flex;gap:6px;margin-bottom:8px;}
   .kbd-mode-btn{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 0;font-size:11px;font-weight:700;color:var(--text-dim);cursor:pointer;text-align:center;}
   .kbd-mode-btn.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
+
+  /* ── SCAN BUTTON ── */
+  .scan-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;background:var(--surface2);border:2px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.15s;margin-bottom:10px;font-family:var(--sans);}
+  .scan-btn:active{transform:scale(0.97);}
+  .scan-btn-icon{font-size:22px;flex-shrink:0;}
+  .scan-btn-text{font-size:14px;font-weight:700;color:var(--text-dim);}
+  .scan-btn-sub{font-size:11px;color:var(--text-muted);margin-top:1px;}
+  .scan-btn.scanning{border-color:var(--accent);background:var(--accent-dim);}
+  .scan-btn.scanning .scan-btn-text{color:var(--accent);}
+  .scan-btn.scanning .scan-btn-sub{color:var(--accent);opacity:0.7;}
+  .scan-btn .scan-dot{width:10px;height:10px;border-radius:50%;background:var(--text-muted);flex-shrink:0;transition:background 0.15s;}
+  .scan-btn.scanning .scan-dot{background:var(--accent);animation:pulse 1s infinite;}
+  .scan-btn-row{display:flex;gap:8px;margin-bottom:10px;}
+  .scan-btn-row .scan-btn{margin-bottom:0;}
 </style>
 </head>
 <body>
@@ -397,23 +411,30 @@
 
   <!-- ── STEP 1: Scan Bin ── -->
   <div id="scanStep1" class="">
-    <div class="slabel">Step 1 — Scan Bin Location</div>
-    <div class="scan-ready" onclick="focusBinField()">
-      <div class="scan-ready-dot"></div>
-      <div>
-        <div class="scan-ready-text">🔌 Scan a Bin Barcode</div>
-        <div class="scan-ready-sub">Or tap ⌨ to type it manually</div>
-      </div>
-      <button onclick="event.stopPropagation();openKeyboard('bin')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-dim);font-size:16px;cursor:pointer;flex-shrink:0;">⌨</button>
+    <div class="slabel">Step 1 — Bin Location</div>
+
+    <!-- Scan button row -->
+    <div class="scan-btn-row">
+      <button class="scan-btn" id="scanBinBtn" onclick="activateBinScan()">
+        <div class="scan-dot"></div>
+        <div style="flex:1;text-align:left;">
+          <div class="scan-btn-text" id="scanBinBtnText">Scan Bin Barcode</div>
+          <div class="scan-btn-sub" id="scanBinBtnSub">Tap to activate scanner</div>
+        </div>
+        <div class="scan-btn-icon">📦</div>
+      </button>
+      <button onclick="openKeyboard('bin')" style="background:var(--surface2);border:2px solid var(--border);border-radius:10px;padding:13px 16px;color:var(--text-dim);font-size:20px;cursor:pointer;flex-shrink:0;">⌨</button>
     </div>
+
     <div class="fgroup">
       <div class="frow">
         <div class="ficon">📦</div>
         <div class="flwrap">
           <div class="flabel">Bin Location</div>
           <input class="finput" id="fBin" type="text" inputmode="text"
-            placeholder="Scan bin barcode…" autocomplete="off" autocorrect="off" spellcheck="false"
-            onfocus="this.select()" onkeydown="if(event.key==='Enter')lockBin();"
+            placeholder="Scan or type bin…" autocomplete="off" autocorrect="off" spellcheck="false"
+            onfocus="this.select();onBinFieldFocus();" onblur="onBinFieldBlur();"
+            onkeydown="if(event.key==='Enter')lockBin();"
             oninput="onBinInput()">
         </div>
       </div>
@@ -435,13 +456,16 @@
     </div>
 
     <!-- Scanner ready -->
-    <div class="scan-ready" onclick="focusProductField()" style="margin-bottom:10px;">
-      <div class="scan-ready-dot"></div>
-      <div style="flex:1">
-        <div class="scan-ready-text">🔌 Scan Product Barcode</div>
-        <div class="scan-ready-sub">Tap ⌨ to type manually</div>
-      </div>
-      <button onclick="event.stopPropagation();openKeyboard('product')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-dim);font-size:16px;cursor:pointer;flex-shrink:0;">⌨</button>
+    <div class="scan-btn-row">
+      <button class="scan-btn" id="scanProdBtn" onclick="activateProductScan()">
+        <div class="scan-dot"></div>
+        <div style="flex:1;text-align:left;">
+          <div class="scan-btn-text" id="scanProdBtnText">Scan Product Barcode</div>
+          <div class="scan-btn-sub" id="scanProdBtnSub">Tap to activate scanner</div>
+        </div>
+        <div class="scan-btn-icon">🔍</div>
+      </button>
+      <button onclick="openKeyboard('product')" style="background:var(--surface2);border:2px solid var(--border);border-radius:10px;padding:13px 16px;color:var(--text-dim);font-size:20px;cursor:pointer;flex-shrink:0;">⌨</button>
     </div>
 
     <div class="fgroup">
@@ -467,7 +491,8 @@
           <input class="finput" id="fProduct" type="text" inputmode="text"
             placeholder="Scan product…" autocomplete="off" autocorrect="off" spellcheck="false"
             oninput="onProductInput()" onkeydown="if(event.key==='Enter')focusQty();"
-            onfocus="this.select();">
+            onfocus="this.select();setScanProdActive(true);"
+            onblur="setScanProdActive(false, document.getElementById('fProduct').value ? '✓ '+document.getElementById('fProduct').value : 'Scan Product Barcode');">
         </div>
         <span class="fbadge b-none" id="productBadge">—</span>
       </div>
@@ -1114,8 +1139,29 @@ let stagedItems = [];        // items staged for current bin before queue commit
 function focusBinField(){
   const f=document.getElementById('fBin'); f.focus(); f.select();
 }
-function onBinInput(){
-  // Wireless scanner sends Enter after barcode — handled by onkeydown
+
+function activateBinScan(){
+  focusBinField();
+  // Visual state handled by onBinFieldFocus
+}
+
+function onBinFieldFocus(){
+  const btn = document.getElementById('scanBinBtn');
+  if(btn){
+    btn.classList.add('scanning');
+    document.getElementById('scanBinBtnText').textContent = '● Ready — Scan Bin Now';
+    document.getElementById('scanBinBtnSub').textContent  = 'Waiting for scanner input…';
+  }
+}
+
+function onBinFieldBlur(){
+  const btn = document.getElementById('scanBinBtn');
+  if(btn){
+    btn.classList.remove('scanning');
+    const val = document.getElementById('fBin').value.trim();
+    document.getElementById('scanBinBtnText').textContent = val ? '✓ Bin: '+val : 'Scan Bin Barcode';
+    document.getElementById('scanBinBtnSub').textContent  = val ? 'Tap to re-scan'         : 'Tap to activate scanner';
+  }
 }
 function lockBin(){
   const bin = document.getElementById('fBin').value.trim().toUpperCase();
@@ -1139,7 +1185,20 @@ function changeBin(){
 
 // ── Step 2: Product scanning ──
 function focusProductField(){
-  const f=document.getElementById('fProduct'); f.focus(); f.select();
+  const f=document.getElementById('fProduct');
+  if(f){ f.focus(); f.select(); }
+}
+
+function activateProductScan(){
+  focusProductField();
+}
+
+function setScanProdActive(active, label){
+  const btn = document.getElementById('scanProdBtn');
+  if(!btn) return;
+  btn.classList.toggle('scanning', active);
+  document.getElementById('scanProdBtnText').textContent = active ? '● Ready — Scan Product Now' : (label||'Scan Product Barcode');
+  document.getElementById('scanProdBtnSub').textContent  = active ? 'Waiting for scanner input…'  : 'Tap to activate scanner';
 }
 function focusQty(){ const e=document.getElementById('fQty'); e.focus(); e.select(); }
 function focusBin(){ document.getElementById('fBin').focus(); }
@@ -1207,7 +1266,8 @@ function clearProductForm(){
   document.getElementById('productBadge').className = 'fbadge b-none';
   document.getElementById('binSuggest').classList.add('hidden');
   dismissUnknownBanner();
-  focusProductField();
+  setScanProdActive(false, 'Scan Product Barcode');
+  focusProductField(); // this will trigger onfocus → scanning state
 }
 
 // Legacy clearForm — resets everything including bin
