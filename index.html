@@ -1317,8 +1317,7 @@ function setScanProdActive(active, label){
   document.getElementById('scanProdBtnText').textContent = active ? '● Ready — Scan Product Now' : (label||'Scan Product Barcode');
   document.getElementById('scanProdBtnSub').textContent  = active ? 'Waiting for scanner input…'  : 'Tap to activate scanner';
 }
-function focusQty(){ const e=document.getElementById('fQty'); e.focus(); e.select(); }
-function focusBin(){ document.getElementById('fBin').focus(); }
+
 
 function stageItem(){
   if(!currentUser){ showToast('err','Not Signed In','Please sign in first.'); return; }
@@ -1631,17 +1630,6 @@ async function commitItem(item){
   clearForm();
 }
 
-function clearForm(){
-  document.getElementById('fProduct').value='';
-  document.getElementById('fQty').value='';
-  document.getElementById('fBin').value='';
-  document.getElementById('productBadge').textContent='—';
-  document.getElementById('productBadge').className='fbadge b-none';
-  document.getElementById('binSuggest').classList.add('hidden');
-  dismissUnknownBanner();
-  document.getElementById('fLoc').value='';
-  focusProductField();
-}
 
 // ── QUEUE UI ──
 const LOC_OPTIONS = ['BC','EE','FS','GT','NH','VP'];
@@ -2400,7 +2388,6 @@ function renderCCCompareResults(){
           <div class="cc-rc-delta neg">${e.exportDelta}</div>
         </div>`).join('');
   }
-}
 
 function showCCView(view){
   document.getElementById('ccAdjList').classList.toggle('hidden',        view!=='adj');
