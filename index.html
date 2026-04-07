@@ -2017,14 +2017,27 @@ function clearCCForm(){
 function startCCListener(){
   if(!dbReady||!db) return;
   if(ccListener) ccListener();
-  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  // Simple collection listener — no compound where+orderBy so no Firestore index required
+  // Filter to today client-side
   ccListener = db.collection('rtp_cycle_count')
-    .where('scanned_at','>=',todayStart)
-    .orderBy('scanned_at','asc')
     .onSnapshot(snap=>{
-      ccEntries = snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      ccEntries = snap.docs
+        .map(d=>({firebaseId:d.id,...d.data()}))
+        .filter(e=>{
+          const ts = e.scanned_at?.toDate ? e.scanned_at.toDate() : new Date(e.scanned_at||0);
+          return ts >= todayStart;
+        })
+        .sort((a,b)=>{
+          const ta = a.scanned_at?.toDate ? a.scanned_at.toDate() : new Date(a.scanned_at||0);
+          const tb = b.scanned_at?.toDate ? b.scanned_at.toDate() : new Date(b.scanned_at||0);
+          return ta - tb;
+        });
       renderCCScanList();
-    }, e=>console.error('CC listener:',e));
+    }, e=>{
+      console.error('CC listener error:',e);
+      showToast('warn','Count Listener','Could not load count entries: '+e.message);
+    });
 }
 
 function refreshCCEntries(){
@@ -2037,12 +2050,16 @@ async function clearTodaysCounts(){
   if(!dbReady||!db){ showToast('err','Not Connected','Firebase not connected.'); return; }
   const todayStart=new Date(); todayStart.setHours(0,0,0,0);
   try{
-    const snap=await db.collection('rtp_cycle_count').where('scanned_at','>=',todayStart).get();
-    if(snap.empty){ showToast('ok','Already Empty','No entries to clear.'); return; }
+    const snap=await db.collection('rtp_cycle_count').get();
+    const toDelete=snap.docs.filter(d=>{
+      const ts=d.data().scanned_at?.toDate?d.data().scanned_at.toDate():new Date(d.data().scanned_at||0);
+      return ts>=todayStart;
+    });
+    if(!toDelete.length){ showToast('ok','Already Empty','No entries to clear.'); return; }
     const batch=db.batch();
-    snap.docs.forEach(d=>batch.delete(d.ref));
+    toDelete.forEach(d=>batch.delete(d.ref));
     await batch.commit();
-    showToast('ok','Cleared',`${snap.size} entries deleted. Start fresh.`);
+    showToast('ok','Cleared',`${toDelete.length} entries deleted. Start fresh.`);
   } catch(e){ showToast('err','Error',e.message); }
 }
 
@@ -2135,8 +2152,10 @@ async function runCCCompare(){
   if(!ccBinLoaded){ showToast('err','No Bin Report','Upload the Inventory Bin Report first.'); return; }
   if(!ccEntries.length && dbReady && db){
     const todayStart=new Date(); todayStart.setHours(0,0,0,0);
-    const snap=await db.collection('rtp_cycle_count').where('scanned_at','>=',todayStart).orderBy('scanned_at','asc').get();
-    ccEntries=snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
+    const snap=await db.collection('rtp_cycle_count').get();
+    ccEntries=snap.docs
+      .map(d=>({firebaseId:d.id,...d.data()}))
+      .filter(e=>{ const ts=e.scanned_at?.toDate?e.scanned_at.toDate():new Date(e.scanned_at||0); return ts>=todayStart; });
   }
   if(!ccEntries.length){ showToast('warn','No Counts','No scanned entries found for today.'); return; }
 
@@ -2291,27 +2310,51 @@ function showCCView(view){
   document.getElementById('ccTabMissing').classList.toggle('active',   view==='missing');
 }
 
+// ── CC Export fingerprint helpers ──
+let ccLastExportFp = null;
+let ccLastExportFile = null;
+let ccLastExportTime = null;
+
+function getCCExportFingerprint(){
+  const all = [...ccCompared, ...ccConflicts, ...ccMissing];
+  return all.map(e=>`${e.pc}|${e.bin}|${e.delta??e.exportDelta}`).sort().join('::');
+}
+
 function exportCycleCount(){
-  // Include: non-zero adjustments + conflict partial rows + missing bin rows
   const adjRows      = ccCompared.filter(e=>e.delta!==0);
   const conflictRows = ccConflicts;
   const missingRows  = ccMissing;
   const allExport    = [...adjRows, ...conflictRows, ...missingRows];
 
-  if(!allExport.length){ showToast('err','Nothing to Export','No adjustments found. Matches and empty counts excluded.'); return; }
+  if(!allExport.length){ showToast('err','Nothing to Export','No adjustments found. Matches excluded.'); return; }
 
+  const fp = getCCExportFingerprint();
+
+  // Duplicate safeguard — require PIN if same results already exported
+  if(ccLastExportFp && ccLastExportFp === fp){
+    const when = ccLastExportTime ? ccLastExportTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : 'earlier';
+    if(pinIsSet() && !sessionOk()){
+      openPinOverlay(null, `Already exported at ${when}. Enter PIN to re-print.`, ()=>doExportCycleCount(allExport, adjRows, conflictRows, missingRows));
+      return;
+    }
+    if(!confirm(`⚠ These results were already exported at ${when}.\nFile: ${ccLastExportFile}\nRe-print anyway?`)) return;
+  }
+  doExportCycleCount(allExport, adjRows, conflictRows, missingRows);
+}
+
+async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows){
   const rows = allExport.map(e=>[
-    e.pc,                                                                    // A
-    e.loc||'',                                                               // B
-    e.bin,                                                                   // C
-    '','',                                                                   // D,E
-    'each',                                                                  // F
-    e.isConflict ? e.exportDelta : e.delta,                                  // G: +/- qty
-    'GenQtyAdj',                                                             // H
+    e.pc,
+    e.loc||'',
+    e.bin,
+    '','',
+    'each',
+    e.isConflict ? e.exportDelta : e.delta,
+    'GenQtyAdj',
     e.isConflict ? 'Cycle Count - Partial (Alloc Conflict)'
       : e.isMissing ? 'Cycle Count - Bin Missing (Add to Apprise)'
-      : 'Cycle Count',                                                       // I
-    ''                                                                       // J
+      : 'Cycle Count',
+    ''
   ]);
 
   const d=new Date(), pad=n=>String(n).padStart(2,'0');
@@ -2327,14 +2370,37 @@ function exportCycleCount(){
   XLSX.utils.book_append_sheet(wb,ws,'Cycle Count');
   XLSX.writeFile(wb,filename);
 
-  showToast('ok','Exported!',
+  // Record fingerprint for duplicate detection
+  ccLastExportFp   = getCCExportFingerprint();
+  ccLastExportFile = filename;
+  ccLastExportTime = new Date();
+
+  showToast('ok','Exported — Archiving…',
     `${adjRows.length} adj · ${conflictRows.length} conflicts · ${missingRows.length} missing bins`);
 
-  if(dbReady&&db) db.collection('rtp_cc_exports').add({
-    filename, exported_by:currentUser||'',
-    adjustments:adjRows.length, conflicts:conflictRows.length, missing:missingRows.length,
-    exported_at:firebase.firestore.FieldValue.serverTimestamp()
-  }).catch(e=>console.error(e));
+  // Archive: move rtp_cycle_count entries → rtp_cc_archive, then delete originals
+  if(dbReady&&db){
+    try{
+      const snap = await db.collection('rtp_cycle_count').get();
+      if(!snap.empty){
+        const archiveBatch = db.batch();
+        const archivedAt = firebase.firestore.FieldValue.serverTimestamp();
+        snap.docs.forEach(d=>{
+          const archRef = db.collection('rtp_cc_archive').doc();
+          archiveBatch.set(archRef, {...d.data(), archived_at:archivedAt, export_file:filename, exported_by:currentUser||''});
+          archiveBatch.delete(d.ref);
+        });
+        await archiveBatch.commit();
+        showToast('ok','Archived',`${snap.size} count entries moved to archive.`);
+      }
+      // Log the export
+      await db.collection('rtp_cc_exports').add({
+        filename, exported_by:currentUser||'',
+        adjustments:adjRows.length, conflicts:conflictRows.length, missing:missingRows.length,
+        exported_at:firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch(e){ console.error(e); showToast('warn','Archive Warning','Export saved but could not archive entries: '+e.message); }
+  }
 }
 // ══════════════════════════════════════════════════════════════
 // ── BOOT ──
