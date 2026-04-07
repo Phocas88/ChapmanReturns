@@ -695,8 +695,12 @@
 
   <!-- ── HANDHELD SCAN MODE ── -->
   <div id="ccModeScan">
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
-      Walk the aisle. Scan each product, scan or type the bin, enter the qty you physically counted. All entries sync to Firebase so the manager can compare against the bin report.
+    <div style="background:rgba(139,92,246,0.12);border:2px solid rgba(139,92,246,0.4);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:22px;">🔢</span>
+      <div>
+        <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:#a78bfa;letter-spacing:1px;">CYCLE COUNT MODE</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px;">Entries go to Count session — NOT the Returns queue</div>
+      </div>
     </div>
 
     <div class="fgroup">
@@ -745,7 +749,7 @@
         </div>
       </div>
     </div>
-    <button class="btn btn-primary" onclick="addCountEntry()">Record Count →</button>
+    <button class="btn" onclick="addCountEntry()" style="background:rgba(139,92,246,0.85);color:#fff;margin-bottom:6px;">🔢 Record Count</button>
     <button class="btn btn-ghost" onclick="clearCCForm()">Clear</button>
 
     <!-- Live count list -->
@@ -1664,23 +1668,27 @@ function updateQueueUI(){
     const opts=LOC_OPTIONS.map(l=>`<option value="${l}"${l===item.loc?' selected':''}>${l}</option>`).join('');
     const ts = item.scanned_at?.toDate ? item.scanned_at.toDate() : new Date(item.scanned_at||Date.now());
     const timeStr = ts.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const fid = item.firebaseId || '';
     return `
     <div class="q-item">
       <div class="q-num">#${i+1}</div>
       <div class="q-info">
         <div class="q-pc">${item.pc}${item.isNew?' <span style="font-size:10px;color:var(--warn)">★ NEW</span>':''}</div>
         <div class="q-meta" style="align-items:center;gap:6px;flex-wrap:wrap;">
-          <select onchange="changeItemLoc('${item.firebaseId}',this.value)" style="background:var(--accent-dim);border:1px solid rgba(0,212,170,0.3);border-radius:4px;color:var(--accent);font-family:var(--mono);font-size:11px;font-weight:700;padding:2px 5px;outline:none;-webkit-appearance:none;appearance:none;cursor:pointer;">${opts}</select>
+          <select onchange="changeItemLoc('${fid}',this.value)" style="background:var(--accent-dim);border:1px solid rgba(0,212,170,0.3);border-radius:4px;color:var(--accent);font-family:var(--mono);font-size:11px;font-weight:700;padding:2px 5px;outline:none;-webkit-appearance:none;appearance:none;cursor:pointer;">${opts}</select>
           ${item.name?`<span style="font-size:11px;color:var(--text-dim)">${item.name}</span>`:''}
           <span style="font-size:10px;color:var(--text-muted)">${timeStr}</span>
         </div>
         <div class="q-bin">→ ${item.bin}</div>
+        <div style="margin-top:6px;">
+          <button onclick="moveQueueItemToCount('${fid}')" style="background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.3);border-radius:6px;color:#a78bfa;font-size:10px;font-weight:700;padding:3px 8px;cursor:pointer;font-family:var(--sans);">↗ Move to Cycle Count</button>
+        </div>
       </div>
       <div style="text-align:right">
         <div class="q-qty">${item.qty}</div>
         <div class="q-qty-lbl">each</div>
       </div>
-      <button class="q-del" onclick="removeItem('${item.firebaseId}')">✕</button>
+      <button class="q-del" onclick="removeItem('${fid}')">✕</button>
     </div>`;
   }).join('');
   const total=queue.reduce((s,i)=>s+i.qty,0);
@@ -1692,8 +1700,34 @@ function changeItemLoc(firebaseId, loc){
   db.collection('rtp_queue').doc(firebaseId).update({location:loc, loc:loc}).catch(e=>console.error(e));
 }
 function removeItem(firebaseId){
+  if(!firebaseId || firebaseId==='undefined'){ showToast('err','Error','Item ID missing — try refreshing the queue.'); return; }
   if(!dbReady||!db){ showToast('err','Not Connected','Firebase not connected.'); return; }
-  db.collection('rtp_queue').doc(firebaseId).delete().catch(e=>console.error(e));
+  db.collection('rtp_queue').doc(firebaseId).delete().catch(e=>{ console.error(e); showToast('err','Delete Failed',e.message); });
+}
+
+async function moveQueueItemToCount(firebaseId){
+  if(!firebaseId||firebaseId==='undefined'){ showToast('err','Error','Item ID missing.'); return; }
+  if(!dbReady||!db){ showToast('err','Not Connected','Firebase not connected.'); return; }
+  // Find item in local queue
+  const item = queue.find(i=>i.firebaseId===firebaseId);
+  if(!item){ showToast('err','Not Found','Item not in queue.'); return; }
+  if(!confirm(`Move [${item.loc}] ${item.pc} × ${item.qty} → ${item.bin} to Cycle Count?`)) return;
+  try{
+    // Write to rtp_cycle_count as a count entry
+    await db.collection('rtp_cycle_count').add({
+      pc: item.pc,
+      bin: item.bin,
+      loc: item.loc,
+      location: item.loc,
+      counted: item.qty,
+      scanned_by: item.name||item.scanned_by||currentUser||'',
+      moved_from_queue: true,
+      scanned_at: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    // Remove from queue
+    await db.collection('rtp_queue').doc(firebaseId).delete();
+    showToast('ok','Moved to Cycle Count',`${item.pc} @ ${item.bin}`);
+  } catch(e){ console.error(e); showToast('err','Error',e.message); }
 }
 async function clearQueue(){
   if(!dbReady||!db){ showToast('err','Not Connected','Firebase not connected.'); return; }
