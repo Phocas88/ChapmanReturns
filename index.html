@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>RTP Scanner</title>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -357,7 +358,31 @@
   .kbd-mode-btn{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 0;font-size:11px;font-weight:700;color:var(--text-dim);cursor:pointer;text-align:center;}
   .kbd-mode-btn.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
 
-  /* ── SCAN BUTTON ── */
+  /* ── CAMERA OVERLAY ── */
+  .cam-overlay{display:none;position:fixed;inset:0;background:#000;z-index:400;flex-direction:column;}
+  .cam-overlay.active{display:flex;}
+  .cam-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:rgba(0,0,0,0.85);}
+  .cam-title{font-family:var(--mono);font-size:13px;color:#fff;letter-spacing:1px;}
+  .cam-target{font-size:11px;color:var(--accent);margin-top:2px;font-family:var(--mono);}
+  .cam-close{background:none;border:1px solid rgba(255,255,255,0.25);border-radius:8px;color:#fff;font-size:13px;padding:7px 14px;cursor:pointer;}
+  .cam-video-wrap{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+  #camVideo{width:100%;height:100%;object-fit:cover;}
+  .cam-reticle{position:absolute;width:72%;max-width:280px;height:140px;border:3px solid var(--accent);border-radius:10px;box-shadow:0 0 0 2000px rgba(0,0,0,0.55);pointer-events:none;}
+  .cam-reticle-corner{position:absolute;width:20px;height:20px;border-color:var(--accent);border-style:solid;opacity:0.9;}
+  .cam-reticle-corner.tl{top:-3px;left:-3px;border-width:3px 0 0 3px;border-radius:4px 0 0 0;}
+  .cam-reticle-corner.tr{top:-3px;right:-3px;border-width:3px 3px 0 0;border-radius:0 4px 0 0;}
+  .cam-reticle-corner.bl{bottom:-3px;left:-3px;border-width:0 0 3px 3px;border-radius:0 0 0 4px;}
+  .cam-reticle-corner.br{bottom:-3px;right:-3px;border-width:0 3px 3px 0;border-radius:0 0 4px 0;}
+  .cam-hint{position:absolute;bottom:20px;font-size:12px;color:rgba(255,255,255,0.7);text-align:center;width:100%;letter-spacing:0.3px;}
+  .cam-status{padding:12px 16px;background:rgba(0,0,0,0.9);font-size:13px;color:var(--text-dim);text-align:center;font-family:var(--mono);min-height:46px;display:flex;align-items:center;justify-content:center;}
+  .cam-status.found{color:var(--success);}
+  .cam-status.err{color:var(--danger);}
+
+  /* Scan button active state */
+  .scan-btn.scanning{border-color:var(--accent);background:var(--accent-dim);}
+  .scan-btn.scanning .scan-btn-text{color:var(--accent);}
+  .scan-btn.scanning .scan-btn-sub{color:var(--accent);opacity:0.7;}
+  .scan-btn.scanning .scan-dot{background:var(--accent);animation:pulse 1s infinite;}
   .scan-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;background:var(--surface2);border:2px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.15s;margin-bottom:10px;font-family:var(--sans);}
   .scan-btn:active{transform:scale(0.97);}
   .scan-btn-icon{font-size:22px;flex-shrink:0;}
@@ -531,6 +556,28 @@
 
 </div>
 
+<!-- ── CAMERA OVERLAY ── -->
+<div class="cam-overlay" id="camOverlay">
+  <div class="cam-header">
+    <div>
+      <div class="cam-title">📷 BARCODE SCANNER</div>
+      <div class="cam-target" id="camTargetLabel">Scanning…</div>
+    </div>
+    <button class="cam-close" onclick="closeCamera()">✕ Cancel</button>
+  </div>
+  <div class="cam-video-wrap">
+    <video id="camVideo" autoplay playsinline muted></video>
+    <div class="cam-reticle">
+      <div class="cam-reticle-corner tl"></div>
+      <div class="cam-reticle-corner tr"></div>
+      <div class="cam-reticle-corner bl"></div>
+      <div class="cam-reticle-corner br"></div>
+    </div>
+    <div class="cam-hint">Center barcode within the frame</div>
+  </div>
+  <div class="cam-status" id="camStatus">Initializing camera…</div>
+</div>
+
 <!-- ── KEYBOARD WIDGET ── -->
 <div class="kbd-overlay" id="kbdOverlay">
   <div class="kbd-scrim" onclick="closeKeyboard(false)"></div>
@@ -674,6 +721,7 @@
             oninput="onCCProductInput()" onfocus="this.select()"
             onkeydown="if(event.key==='Enter')document.getElementById('ccBin').focus();">
         </div>
+        <button onclick="openCamera('ccProd')" style="background:var(--accent);color:#0a0e1a;border:none;border-radius:8px;padding:6px 12px;font-size:18px;cursor:pointer;flex-shrink:0;margin-left:4px;">📷</button>
         <span class="fbadge b-none" id="ccProductBadge">—</span>
       </div>
       <div class="frow">
@@ -685,6 +733,7 @@
             onfocus="this.select()"
             onkeydown="if(event.key==='Enter')document.getElementById('ccCounted').focus();">
         </div>
+        <button onclick="openCamera('ccBin')" style="background:var(--accent);color:#0a0e1a;border:none;border-radius:8px;padding:6px 12px;font-size:18px;cursor:pointer;flex-shrink:0;margin-left:4px;">📷</button>
       </div>
       <div class="frow">
         <div class="ficon wi">🔢</div>
@@ -1137,30 +1186,89 @@ let stagedItems = [];        // items staged for current bin before queue commit
 
 // ── Step 1: Bin input ──
 function focusBinField(){
-  const f=document.getElementById('fBin'); f.focus(); f.select();
+  const f=document.getElementById('fBin'); if(f){ f.focus(); f.select(); }
 }
-
-function activateBinScan(){
-  focusBinField();
-  // Visual state handled by onBinFieldFocus
-}
-
+function activateBinScan(){ openCamera('bin'); }
 function onBinFieldFocus(){
-  const btn = document.getElementById('scanBinBtn');
-  if(btn){
-    btn.classList.add('scanning');
-    document.getElementById('scanBinBtnText').textContent = '● Ready — Scan Bin Now';
-    document.getElementById('scanBinBtnSub').textContent  = 'Waiting for scanner input…';
+  const btn=document.getElementById('scanBinBtn');
+  if(btn){ btn.classList.add('scanning'); document.getElementById('scanBinBtnText').textContent='● Active'; document.getElementById('scanBinBtnSub').textContent='Field ready — or tap Scan for camera'; }
+}
+function onBinFieldBlur(){
+  const btn=document.getElementById('scanBinBtn');
+  if(btn){ btn.classList.remove('scanning'); const val=document.getElementById('fBin').value.trim(); document.getElementById('scanBinBtnText').textContent=val?'✓ '+val:'Scan Bin'; document.getElementById('scanBinBtnSub').textContent='Tap to scan with camera'; }
+}
+
+// ── CAMERA ──
+let codeReader=null, cameraActive=false, camTarget=null;
+const CAM_LABELS={bin:'Scanning Bin Location',product:'Scanning Product Code',ccBin:'Scanning Bin (Cycle Count)',ccProd:'Scanning Product (Cycle Count)'};
+
+async function openCamera(target){
+  camTarget=target;
+  document.getElementById('camTargetLabel').textContent=CAM_LABELS[target]||'Scanning…';
+  document.getElementById('camStatus').textContent='Initializing camera…';
+  document.getElementById('camStatus').className='cam-status';
+  document.getElementById('camOverlay').classList.add('active');
+  cameraActive=true;
+  try{
+    if(typeof ZXing==='undefined') throw new Error('Scanner library not loaded — check your connection.');
+    const hints=new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+      ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,
+      ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.DATA_MATRIX,
+      ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.PDF_417,
+      ZXing.BarcodeFormat.CODE_93,ZXing.BarcodeFormat.INTERLEAVED_2_OF_5,
+    ]);
+    codeReader=new ZXing.BrowserMultiFormatReader(hints,150);
+    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+    const track=stream.getVideoTracks()[0];
+    if(track&&track.applyConstraints){try{await track.applyConstraints({advanced:[{focusMode:'continuous'}]});}catch(e){}}
+    const video=document.getElementById('camVideo');
+    video.srcObject=stream; await video.play();
+    document.getElementById('camStatus').textContent='Ready — point at barcode';
+    codeReader.decodeFromStream(stream,video,(result)=>{
+      if(!cameraActive||!result) return;
+      const code=result.getText();
+      document.getElementById('camStatus').textContent='✓ '+code;
+      document.getElementById('camStatus').className='cam-status found';
+      if(navigator.vibrate) navigator.vibrate([80,40,80]);
+      setTimeout(()=>{ closeCamera(); handleScannedCode(code,camTarget); },350);
+    });
+  } catch(e){
+    let msg=e.message;
+    if(e.name==='NotAllowedError') msg='Camera permission denied — check browser settings.';
+    if(e.name==='NotFoundError')   msg='No camera found on this device.';
+    document.getElementById('camStatus').textContent=msg;
+    document.getElementById('camStatus').className='cam-status err';
   }
 }
-
-function onBinFieldBlur(){
-  const btn = document.getElementById('scanBinBtn');
-  if(btn){
-    btn.classList.remove('scanning');
-    const val = document.getElementById('fBin').value.trim();
-    document.getElementById('scanBinBtnText').textContent = val ? '✓ Bin: '+val : 'Scan Bin Barcode';
-    document.getElementById('scanBinBtnSub').textContent  = val ? 'Tap to re-scan'         : 'Tap to activate scanner';
+function closeCamera(){
+  cameraActive=false;
+  try{if(codeReader){codeReader.reset();codeReader=null;}}catch(e){}
+  const v=document.getElementById('camVideo');
+  try{if(v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null;}}catch(e){}
+  document.getElementById('camOverlay').classList.remove('active');
+}
+function handleScannedCode(code,target){
+  if(target==='bin'){
+    document.getElementById('fBin').value=code;
+    onBinFieldBlur();
+    lockBin();
+  } else if(target==='product'){
+    document.getElementById('fProduct').value=code;
+    onProductInput();
+    focusQty();
+    showToast('ok','✓ Scanned',code);
+  } else if(target==='ccBin'){
+    document.getElementById('ccBin').value=code.toUpperCase();
+    showToast('ok','✓ Bin Scanned',code);
+  } else if(target==='ccProd'){
+    document.getElementById('ccProduct').value=code;
+    onCCProductInput();
+    document.getElementById('ccCounted').focus();
+    showToast('ok','✓ Product Scanned',code);
   }
 }
 function lockBin(){
@@ -1189,9 +1297,7 @@ function focusProductField(){
   if(f){ f.focus(); f.select(); }
 }
 
-function activateProductScan(){
-  focusProductField();
-}
+function activateProductScan(){ openCamera('product'); }
 
 function setScanProdActive(active, label){
   const btn = document.getElementById('scanProdBtn');
