@@ -315,6 +315,47 @@
   .exp-log-info{flex:1;}
   .exp-log-ts{font-size:10px;color:var(--text-muted);margin-top:2px;}
   .exp-warn-badge{font-family:var(--mono);font-size:10px;background:var(--warn-dim);color:var(--warn);padding:2px 6px;border-radius:4px;flex-shrink:0;}
+
+  /* ── BIN-FIRST SCAN FLOW ── */
+  .bin-lock-bar{display:flex;align-items:center;gap:10px;background:var(--accent-dim);border:2px solid var(--accent);border-radius:10px;padding:11px 14px;margin-bottom:12px;}
+  .bin-lock-icon{font-size:20px;flex-shrink:0;}
+  .bin-lock-val{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--accent);flex:1;}
+  .bin-lock-lbl{font-size:10px;color:var(--accent);opacity:0.7;text-transform:uppercase;letter-spacing:1px;}
+  .bin-lock-change{background:none;border:1px solid rgba(0,212,170,0.4);border-radius:6px;color:var(--accent);font-size:11px;padding:5px 10px;cursor:pointer;white-space:nowrap;}
+
+  .staged-list{margin-bottom:10px;}
+  .staged-item{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:6px;}
+  .staged-pc{font-family:var(--mono);font-size:13px;font-weight:700;flex:1;}
+  .staged-loc{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-dim);padding:2px 6px;border-radius:4px;flex-shrink:0;}
+  .staged-qty{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);flex-shrink:0;min-width:36px;text-align:right;}
+  .staged-del{background:none;border:none;color:var(--text-muted);font-size:15px;cursor:pointer;padding:2px 4px;flex-shrink:0;}
+  .staged-del:hover{color:var(--danger);}
+  .staged-empty{text-align:center;padding:16px;font-size:12px;color:var(--text-muted);border:1px dashed var(--border);border-radius:8px;margin-bottom:10px;}
+
+  /* ── KEYBOARD WIDGET ── */
+  .kbd-overlay{display:none;position:fixed;inset:0;z-index:350;flex-direction:column;justify-content:flex-end;}
+  .kbd-overlay.active{display:flex;}
+  .kbd-scrim{position:absolute;inset:0;background:rgba(0,0,0,0.45);}
+  .kbd-panel{position:relative;background:var(--surface);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:14px 12px 24px;box-shadow:0 -8px 32px rgba(0,0,0,0.4);}
+  .kbd-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .kbd-display{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text);min-height:44px;word-break:break-all;letter-spacing:1px;}
+  .kbd-display .kbd-cursor{display:inline-block;width:2px;height:1.1em;background:var(--accent);vertical-align:text-bottom;animation:blink 1s step-end infinite;}
+  @keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+  .kbd-label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;text-align:center;}
+  .kbd-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
+  .kbd-key{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 0;font-family:var(--mono);font-size:18px;font-weight:700;color:var(--text);cursor:pointer;text-align:center;user-select:none;transition:background 0.1s,transform 0.08s;}
+  .kbd-key:active{background:var(--accent);color:#0a0e1a;transform:scale(0.93);}
+  .kbd-key.wide{grid-column:span 2;}
+  .kbd-key.action{background:var(--accent);color:#0a0e1a;font-size:14px;font-weight:700;}
+  .kbd-key.action:active{background:var(--accent);opacity:0.8;}
+  .kbd-key.del{font-size:16px;color:var(--warn);}
+  .kbd-key.cancel{background:var(--danger-dim);color:var(--danger);border-color:rgba(239,68,68,0.3);font-size:13px;}
+  .kbd-alpha-row{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;margin-bottom:6px;}
+  .kbd-alpha-key{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:9px 0;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text);cursor:pointer;text-align:center;user-select:none;flex:0 0 calc(10% - 5px);min-width:28px;transition:background 0.1s;}
+  .kbd-alpha-key:active{background:var(--accent);color:#0a0e1a;}
+  .kbd-mode-row{display:flex;gap:6px;margin-bottom:8px;}
+  .kbd-mode-btn{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 0;font-size:11px;font-weight:700;color:var(--text-dim);cursor:pointer;text-align:center;}
+  .kbd-mode-btn.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
 </style>
 </head>
 <body>
@@ -344,89 +385,171 @@
 <!-- ═══ SCAN TAB ═══ -->
 <div id="tab-scan" class="main">
 
-  <!-- Unknown Product Red Warning Banner (hidden by default) -->
+  <!-- Unknown Product Red Warning Banner -->
   <div id="unknownBanner" class="unknown-banner hidden">
     <div class="unknown-banner-title">🚨 Product Not Found</div>
-    <div class="unknown-banner-msg" id="unknownBannerMsg">This product code is not in the database. Are you sure it's correct?</div>
+    <div class="unknown-banner-msg" id="unknownBannerMsg"></div>
     <div class="unknown-banner-btns">
       <button class="ub-yes" onclick="confirmUnknownProduct()">Yes, Add Anyway</button>
       <button class="ub-no" onclick="dismissUnknownBanner()">No, Re-check</button>
     </div>
   </div>
 
-  <div class="slabel">Product</div>
-
-  <!-- Scanner ready indicator — tap to re-focus if needed -->
-  <div class="scan-ready" onclick="focusProductField()">
-    <div class="scan-ready-dot"></div>
-    <div>
-      <div class="scan-ready-text">🔌 Ready to Scan</div>
-      <div class="scan-ready-sub">Point scanner at barcode and press the trigger</div>
+  <!-- ── STEP 1: Scan Bin ── -->
+  <div id="scanStep1" class="">
+    <div class="slabel">Step 1 — Scan Bin Location</div>
+    <div class="scan-ready" onclick="focusBinField()">
+      <div class="scan-ready-dot"></div>
+      <div>
+        <div class="scan-ready-text">🔌 Scan a Bin Barcode</div>
+        <div class="scan-ready-sub">Or tap ⌨ to type it manually</div>
+      </div>
+      <button onclick="event.stopPropagation();openKeyboard('bin')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-dim);font-size:16px;cursor:pointer;flex-shrink:0;">⌨</button>
     </div>
-  </div>
-
-  <div class="fgroup">
-    <!-- Per-item location — auto-detected from DB, user can override -->
-    <div class="frow item-loc-row">
-      <div class="ficon" style="background:var(--accent-dim);">📍</div>
-      <div class="flwrap">
-        <div class="flabel">Location / Brand <span style="font-size:9px;color:var(--accent);opacity:0.7;">(auto-detected)</span></div>
-        <select class="finput" id="fLoc" onchange="onItemLocChange()">
-          <option value="">— Select —</option>
-          <option value="BC">BC</option>
-          <option value="EE">EE</option>
-          <option value="FS">FS</option>
-          <option value="GT">GT</option>
-          <option value="NH">NH</option>
-          <option value="VP">VP</option>
-        </select>
+    <div class="fgroup">
+      <div class="frow">
+        <div class="ficon">📦</div>
+        <div class="flwrap">
+          <div class="flabel">Bin Location</div>
+          <input class="finput" id="fBin" type="text" inputmode="text"
+            placeholder="Scan bin barcode…" autocomplete="off" autocorrect="off" spellcheck="false"
+            onfocus="this.select()" onkeydown="if(event.key==='Enter')lockBin();"
+            oninput="onBinInput()">
+        </div>
       </div>
     </div>
-    <div class="frow">
-      <div class="ficon">🔍</div>
-      <div class="flwrap">
-        <div class="flabel">Product Code / UPC / GTIN</div>
-        <input class="finput" id="fProduct" type="text" inputmode="text"
-          placeholder="Scan or type product code…" autocomplete="off" autocorrect="off" spellcheck="false"
-          oninput="onProductInput()" onkeydown="if(event.key==='Enter')focusQty();"
-          onfocus="this.select();">
-      </div>
-      <span class="fbadge b-none" id="productBadge">—</span>
-    </div>
+    <button class="btn btn-primary" onclick="lockBin()">Lock Bin →</button>
   </div>
 
-  <div id="binSuggest" class="bin-suggest hidden" onclick="useSuggestedBin()">
-    <div>
-      <div class="bsl">Suggested Primary Bin</div>
-      <div class="bsv" id="suggestedBinVal">—</div>
-    </div>
-    <div class="bsh">Tap to use →</div>
-  </div>
+  <!-- ── STEP 2: Scan Products into locked bin ── -->
+  <div id="scanStep2" class="hidden">
 
-  <div class="slabel">Quantity &amp; Bin</div>
-  <div class="fgroup">
-    <div class="frow">
-      <div class="ficon wi">🔢</div>
-      <div class="flwrap">
-        <div class="flabel">Quantity (Each)</div>
-        <input class="finput" id="fQty" type="number" inputmode="numeric"
-          placeholder="0" min="1" onkeydown="if(event.key==='Enter')focusBin();">
+    <!-- Locked bin bar -->
+    <div class="bin-lock-bar">
+      <div class="bin-lock-icon">📦</div>
+      <div>
+        <div class="bin-lock-lbl">Active Bin</div>
+        <div class="bin-lock-val" id="binLockVal">—</div>
+      </div>
+      <button class="bin-lock-change" onclick="changeBin()">↩ Change Bin</button>
+    </div>
+
+    <!-- Scanner ready -->
+    <div class="scan-ready" onclick="focusProductField()" style="margin-bottom:10px;">
+      <div class="scan-ready-dot"></div>
+      <div style="flex:1">
+        <div class="scan-ready-text">🔌 Scan Product Barcode</div>
+        <div class="scan-ready-sub">Tap ⌨ to type manually</div>
+      </div>
+      <button onclick="event.stopPropagation();openKeyboard('product')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-dim);font-size:16px;cursor:pointer;flex-shrink:0;">⌨</button>
+    </div>
+
+    <div class="fgroup">
+      <div class="frow item-loc-row">
+        <div class="ficon" style="background:var(--accent-dim);">📍</div>
+        <div class="flwrap">
+          <div class="flabel">Location <span style="font-size:9px;opacity:0.7;">(auto-detected)</span></div>
+          <select class="finput" id="fLoc" onchange="onItemLocChange()">
+            <option value="">— Select —</option>
+            <option value="BC">BC</option>
+            <option value="EE">EE</option>
+            <option value="FS">FS</option>
+            <option value="GT">GT</option>
+            <option value="NH">NH</option>
+            <option value="VP">VP</option>
+          </select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="ficon">🔍</div>
+        <div class="flwrap">
+          <div class="flabel">Product Code / UPC / GTIN</div>
+          <input class="finput" id="fProduct" type="text" inputmode="text"
+            placeholder="Scan product…" autocomplete="off" autocorrect="off" spellcheck="false"
+            oninput="onProductInput()" onkeydown="if(event.key==='Enter')focusQty();"
+            onfocus="this.select();">
+        </div>
+        <span class="fbadge b-none" id="productBadge">—</span>
+      </div>
+      <div class="frow">
+        <div class="ficon wi">🔢</div>
+        <div class="flwrap">
+          <div class="flabel">Quantity (Each)</div>
+          <input class="finput" id="fQty" type="number" inputmode="numeric"
+            placeholder="0" min="1"
+            onfocus="this.select()"
+            onkeydown="if(event.key==='Enter')stageItem();">
+        </div>
+        <button onclick="openKeyboard('qty')" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 10px;color:var(--text-dim);font-size:14px;cursor:pointer;flex-shrink:0;margin-left:4px;">⌨</button>
       </div>
     </div>
-    <div class="frow">
-      <div class="ficon">📦</div>
-      <div class="flwrap">
-        <div class="flabel">Bin Location</div>
-        <input class="finput" id="fBin" type="text" inputmode="text"
-          placeholder="e.g. 03-325-04" autocomplete="off" autocorrect="off" spellcheck="false"
-          onkeydown="if(event.key==='Enter')addToQueue();">
+
+    <div id="binSuggest" class="bin-suggest hidden" onclick="useSuggestedBin()">
+      <div>
+        <div class="bsl">Suggested Primary Bin</div>
+        <div class="bsv" id="suggestedBinVal">—</div>
+      </div>
+      <div class="bsh">Tap to use →</div>
+    </div>
+
+    <button class="btn btn-primary" style="margin-bottom:6px;" onclick="stageItem()">+ Add Item to Bin</button>
+    <button class="btn btn-ghost" onclick="clearProductForm()">Clear Product</button>
+
+    <!-- Staged items for this bin -->
+    <div class="slabel" style="margin-top:14px;">Items in this Bin <span id="stagedCount" style="color:var(--accent);font-family:var(--mono);">0</span></div>
+    <div id="stagedList" class="staged-list">
+      <div class="staged-empty">No items yet — scan a product above.</div>
+    </div>
+
+    <button class="btn btn-primary" id="addAllBtn" onclick="addAllToQueue()" style="display:none;">✓ Add All to Queue →</button>
+  </div>
+
+</div>
+
+<!-- ── KEYBOARD WIDGET ── -->
+<div class="kbd-overlay" id="kbdOverlay">
+  <div class="kbd-scrim" onclick="closeKeyboard(false)"></div>
+  <div class="kbd-panel">
+    <div class="kbd-label" id="kbdLabel">Enter value</div>
+    <div class="kbd-header">
+      <div class="kbd-display" id="kbdDisplay"><span class="kbd-cursor"></span></div>
+    </div>
+    <!-- Mode toggle: numeric / alphanumeric -->
+    <div class="kbd-mode-row">
+      <div class="kbd-mode-btn active" id="kbdModeNum" onclick="setKbdMode('num')">123 Numeric</div>
+      <div class="kbd-mode-btn" id="kbdModeAlpha" onclick="setKbdMode('alpha')">ABC Alphanumeric</div>
+    </div>
+    <!-- Numeric pad -->
+    <div id="kbdNumPad" class="kbd-grid">
+      <div class="kbd-key" onclick="kbdChar('1')">1</div>
+      <div class="kbd-key" onclick="kbdChar('2')">2</div>
+      <div class="kbd-key" onclick="kbdChar('3')">3</div>
+      <div class="kbd-key" onclick="kbdChar('4')">4</div>
+      <div class="kbd-key" onclick="kbdChar('5')">5</div>
+      <div class="kbd-key" onclick="kbdChar('6')">6</div>
+      <div class="kbd-key" onclick="kbdChar('7')">7</div>
+      <div class="kbd-key" onclick="kbdChar('8')">8</div>
+      <div class="kbd-key" onclick="kbdChar('9')">9</div>
+      <div class="kbd-key" onclick="kbdChar('-')">-</div>
+      <div class="kbd-key" onclick="kbdChar('0')">0</div>
+      <div class="kbd-key del" onclick="kbdDel()">⌫</div>
+      <div class="kbd-key cancel" onclick="closeKeyboard(false)">Cancel</div>
+      <div class="kbd-key action wide" onclick="closeKeyboard(true)">Done ✓</div>
+    </div>
+    <!-- Alpha pad -->
+    <div id="kbdAlphaPad" class="hidden">
+      <div class="kbd-alpha-row" id="kbdAlphaRow1"></div>
+      <div class="kbd-alpha-row" id="kbdAlphaRow2"></div>
+      <div class="kbd-alpha-row" id="kbdAlphaRow3"></div>
+      <div class="kbd-grid" style="margin-top:6px;">
+        <div class="kbd-key" onclick="kbdChar('.')" style="font-size:14px;">.</div>
+        <div class="kbd-key wide" onclick="kbdChar(' ')">Space</div>
+        <div class="kbd-key del" onclick="kbdDel()">⌫</div>
+        <div class="kbd-key cancel" onclick="closeKeyboard(false)">Cancel</div>
+        <div class="kbd-key action wide" onclick="closeKeyboard(true)">Done ✓</div>
       </div>
     </div>
   </div>
-
-  <button class="btn btn-primary" onclick="addToQueue()">Add to Queue →</button>
-  <button class="btn btn-ghost" onclick="clearForm()">Clear</button>
-
 </div>
 
 <!-- ═══ QUEUE TAB ═══ -->
@@ -871,7 +994,7 @@ function doLogin(){
 function onLoggedIn(){
   document.getElementById('locChip').textContent='👤 '+currentUser;
   document.getElementById('settingsUserName').textContent=currentUser;
-  setTimeout(focusProductField, 200);
+  setTimeout(()=>focusBinField(), 200);
 }
 function doLogout(){
   if(!confirm('Sign out as '+currentUser+'?')) return;
@@ -981,12 +1104,209 @@ function updateLocChip(loc){ document.getElementById('locChip').textContent=loc?
 function getItemLoc(){ return document.getElementById('fLoc').value||null; }
 function onItemLocChange(){ onProductInput(); }
 
-// ── SCANNER — wireless scanner types into fProduct directly ──
-function focusProductField(){
-  const f=document.getElementById('fProduct');
-  f.focus();
-  f.select();
+// ══════════════════════════════════════════════════════════════
+// ── SCAN FLOW: Bin-first, multi-product per bin ──
+// ══════════════════════════════════════════════════════════════
+let activeBin = '';          // currently locked bin
+let stagedItems = [];        // items staged for current bin before queue commit
+
+// ── Step 1: Bin input ──
+function focusBinField(){
+  const f=document.getElementById('fBin'); f.focus(); f.select();
 }
+function onBinInput(){
+  // Wireless scanner sends Enter after barcode — handled by onkeydown
+}
+function lockBin(){
+  const bin = document.getElementById('fBin').value.trim().toUpperCase();
+  if(!bin){ showToast('err','No Bin','Scan or enter a bin location first.'); return; }
+  activeBin = bin;
+  document.getElementById('binLockVal').textContent = bin;
+  document.getElementById('scanStep1').classList.add('hidden');
+  document.getElementById('scanStep2').classList.remove('hidden');
+  stagedItems = [];
+  renderStagedList();
+  focusProductField();
+}
+function changeBin(){
+  activeBin = '';
+  stagedItems = [];
+  document.getElementById('fBin').value = '';
+  document.getElementById('scanStep2').classList.add('hidden');
+  document.getElementById('scanStep1').classList.remove('hidden');
+  focusBinField();
+}
+
+// ── Step 2: Product scanning ──
+function focusProductField(){
+  const f=document.getElementById('fProduct'); f.focus(); f.select();
+}
+function focusQty(){ const e=document.getElementById('fQty'); e.focus(); e.select(); }
+function focusBin(){ document.getElementById('fBin').focus(); }
+
+function stageItem(){
+  if(!currentUser){ showToast('err','Not Signed In','Please sign in first.'); return; }
+  if(!activeBin){ lockBin(); return; }
+  const itemLoc = getItemLoc();
+  const rawProd = document.getElementById('fProduct').value.trim();
+  const qty     = parseInt(document.getElementById('fQty').value);
+  if(!rawProd){ showToast('err','Missing Product','Scan or enter a product code.'); return; }
+  if(!qty||qty<1){ showToast('err','Invalid Qty','Enter a quantity ≥ 1.'); return; }
+  const r = lookupProduct(rawProd);
+  if(!r){
+    showUnknownBanner(rawProd, itemLoc,
+      makeItem(rawProd, qty, activeBin, itemLoc, true, currentUser));
+    return;
+  }
+  const item = makeItem(r.pc, qty, activeBin, r.loc||itemLoc, false, currentUser);
+  stagedItems.push(item);
+  renderStagedList();
+  clearProductForm();
+  showToast('ok','Staged',`${r.pc} ×${qty} → ${activeBin}`);
+}
+
+function renderStagedList(){
+  const el = document.getElementById('stagedList');
+  const count = document.getElementById('stagedCount');
+  const btn = document.getElementById('addAllBtn');
+  count.textContent = stagedItems.length;
+  btn.style.display = stagedItems.length ? '' : 'none';
+  if(!stagedItems.length){
+    el.innerHTML = '<div class="staged-empty">No items yet — scan a product above.</div>';
+    return;
+  }
+  el.innerHTML = stagedItems.map((item,i) => `
+    <div class="staged-item">
+      <div class="staged-pc">${item.pc}${item.isNew ? ' <span style="font-size:10px;color:var(--warn)">★NEW</span>' : ''}</div>
+      <div class="staged-loc">${item.loc}</div>
+      <div class="staged-qty">×${item.qty}</div>
+      <button class="staged-del" onclick="removeStagedItem(${i})">✕</button>
+    </div>`).join('');
+}
+
+function removeStagedItem(i){
+  stagedItems.splice(i,1);
+  renderStagedList();
+}
+
+async function addAllToQueue(){
+  if(!stagedItems.length){ showToast('err','Nothing Staged','Add items first.'); return; }
+  for(const item of stagedItems) await commitItem(item);
+  showToast('ok','Added to Queue',`${stagedItems.length} item(s) → ${activeBin}`);
+  stagedItems = [];
+  renderStagedList();
+  // Stay on same bin — ready for next scan in same bin or user can change bin
+  focusProductField();
+}
+
+function clearProductForm(){
+  document.getElementById('fProduct').value = '';
+  document.getElementById('fQty').value = '';
+  document.getElementById('fLoc').value = '';
+  document.getElementById('productBadge').textContent = '—';
+  document.getElementById('productBadge').className = 'fbadge b-none';
+  document.getElementById('binSuggest').classList.add('hidden');
+  dismissUnknownBanner();
+  focusProductField();
+}
+
+// Legacy clearForm — resets everything including bin
+function clearForm(){
+  stagedItems = [];
+  activeBin = '';
+  document.getElementById('fBin').value = '';
+  document.getElementById('fProduct').value = '';
+  document.getElementById('fQty').value = '';
+  document.getElementById('fLoc').value = '';
+  document.getElementById('productBadge').textContent = '—';
+  document.getElementById('productBadge').className = 'fbadge b-none';
+  document.getElementById('binSuggest').classList.add('hidden');
+  document.getElementById('scanStep2').classList.add('hidden');
+  document.getElementById('scanStep1').classList.remove('hidden');
+  dismissUnknownBanner();
+  renderStagedList();
+  focusBinField();
+}
+
+// ── KEYBOARD WIDGET ──
+let kbdTarget = null;   // 'bin' | 'product' | 'qty'
+let kbdBuffer = '';
+let kbdMode = 'num';
+
+const ALPHA_ROWS = [
+  ['Q','W','E','R','T','Y','U','I','O','P'],
+  ['A','S','D','F','G','H','J','K','L'],
+  ['Z','X','C','V','B','N','M','-','.']
+];
+
+function buildAlphaKeys(){
+  ALPHA_ROWS.forEach((row,ri) => {
+    const el = document.getElementById('kbdAlphaRow'+(ri+1));
+    el.innerHTML = row.map(k =>
+      `<div class="kbd-alpha-key" onclick="kbdChar('${k}')">${k}</div>`
+    ).join('');
+  });
+}
+
+function openKeyboard(target){
+  kbdTarget = target;
+  kbdBuffer = '';
+  // Pre-fill with current field value
+  if(target==='bin')     kbdBuffer = document.getElementById('fBin').value;
+  if(target==='product') kbdBuffer = document.getElementById('fProduct').value;
+  if(target==='qty')     kbdBuffer = document.getElementById('fQty').value;
+
+  const labels = {bin:'Bin Location', product:'Product Code / UPC', qty:'Quantity'};
+  document.getElementById('kbdLabel').textContent = labels[target]||'Enter value';
+
+  // Default mode
+  const defaultMode = target==='qty' ? 'num' : 'alpha';
+  setKbdMode(defaultMode);
+  renderKbdDisplay();
+  document.getElementById('kbdOverlay').classList.add('active');
+}
+
+function setKbdMode(mode){
+  kbdMode = mode;
+  document.getElementById('kbdNumPad').classList.toggle('hidden', mode!=='num');
+  document.getElementById('kbdAlphaPad').classList.toggle('hidden', mode!=='alpha');
+  document.getElementById('kbdModeNum').classList.toggle('active', mode==='num');
+  document.getElementById('kbdModeAlpha').classList.toggle('active', mode==='alpha');
+}
+
+function kbdChar(c){
+  kbdBuffer += c;
+  renderKbdDisplay();
+}
+function kbdDel(){
+  kbdBuffer = kbdBuffer.slice(0,-1);
+  renderKbdDisplay();
+}
+function renderKbdDisplay(){
+  document.getElementById('kbdDisplay').innerHTML =
+    (kbdBuffer||'') + '<span class="kbd-cursor"></span>';
+}
+function closeKeyboard(apply){
+  document.getElementById('kbdOverlay').classList.remove('active');
+  if(!apply) return;
+  const val = kbdBuffer.trim();
+  if(kbdTarget==='bin'){
+    document.getElementById('fBin').value = val;
+    if(val) lockBin(); else focusBinField();
+  } else if(kbdTarget==='product'){
+    document.getElementById('fProduct').value = val;
+    onProductInput();
+    focusQty();
+  } else if(kbdTarget==='qty'){
+    document.getElementById('fQty').value = val;
+    stageItem();
+  }
+  kbdBuffer=''; kbdTarget=null;
+}
+
+// Build alpha keys on load
+buildAlphaKeys();
+// ══════════════════════════════════════════════════════════════
 
 // ── UNKNOWN PRODUCT BANNER ──
 function showUnknownBanner(rawProd, itemLoc, itemForCommit){
@@ -1079,7 +1399,7 @@ function switchTab(tab){
 function reallySwitch(tab){
   ['scan','queue','history','count','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','count','manager'][i]===tab));
-  if(tab==='scan') setTimeout(focusProductField, 100);
+  if(tab==='scan') setTimeout(()=>{ if(activeBin) focusProductField(); else focusBinField(); }, 100);
   if(tab==='queue') fetchQueue();
   if(tab==='count') initCountTab();
   if(tab==='manager') updateManagerUI();
@@ -1089,25 +1409,8 @@ function useSuggestedBin(){ document.getElementById('fBin').value=document.getEl
 function focusQty(){ const e=document.getElementById('fQty'); e.focus(); e.select(); }
 function focusBin(){ document.getElementById('fBin').focus(); }
 
-// ── ADD TO QUEUE ──
-function addToQueue(){
-  if(!currentUser){ showToast('err','Not Signed In','Please sign in first.'); return; }
-  const itemLoc=getItemLoc();
-  const rawProd=document.getElementById('fProduct').value.trim();
-  const qty=parseInt(document.getElementById('fQty').value);
-  const bin=document.getElementById('fBin').value.trim();
-  if(!itemLoc){ showToast('err','No Location','Select this item\'s location/brand.'); return; }
-  if(!rawProd){ showToast('err','Missing Product','Enter or scan a product code.'); return; }
-  if(!qty||qty<1){ showToast('err','Invalid Qty','Enter a quantity ≥ 1.'); return; }
-  if(!bin){ showToast('err','Missing Bin','Enter a bin location.'); return; }
-  const r=lookupProduct(rawProd);
-  if(!r){
-    // Show red banner instead of toast
-    showUnknownBanner(rawProd, itemLoc, makeItem(rawProd,qty,bin,itemLoc,true,currentUser));
-    return;
-  }
-  commitItem(makeItem(r.pc,qty,bin,r.loc||itemLoc,false,currentUser));
-}
+// ── ADD TO QUEUE — delegates to stageItem in new bin-first flow ──
+function addToQueue(){ stageItem(); }
 
 function makeItem(pc,qty,bin,loc,isNew,name){
   return {id:Date.now()+Math.random(),pc,qty,bin,loc,isNew,name:name||'',time:new Date()};
