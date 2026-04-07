@@ -560,7 +560,7 @@
 <div class="cam-overlay" id="camOverlay">
   <div class="cam-header">
     <div>
-      <div class="cam-title">📷 BARCODE SCANNER</div>
+      <div class="cam-title">📷 BARCODE SCANNER <span style="font-size:10px;opacity:0.6;" id="camEngineLabel"></span></div>
       <div class="cam-target" id="camTargetLabel">Scanning…</div>
     </div>
     <button class="cam-close" onclick="closeCamera()">✕ Cancel</button>
@@ -1213,40 +1213,86 @@ function onBinFieldBlur(){
 let codeReader=null, cameraActive=false, camTarget=null;
 const CAM_LABELS={bin:'Scanning Bin Location',product:'Scanning Product Code',ccBin:'Scanning Bin (Cycle Count)',ccProd:'Scanning Product (Cycle Count)'};
 
+// ── Detect best available scanning engine ──
+const USE_NATIVE = ('BarcodeDetector' in window);
+let nativeDetector = null;
+if(USE_NATIVE){
+  try{
+    nativeDetector = new BarcodeDetector({formats:[
+      'code_128','code_39','code_93','ean_13','ean_8',
+      'upc_a','upc_e','qr_code','data_matrix','itf','pdf417'
+    ]});
+  } catch(e){ nativeDetector=null; }
+}
+
 async function openCamera(target){
   camTarget=target;
   document.getElementById('camTargetLabel').textContent=CAM_LABELS[target]||'Scanning…';
+  document.getElementById('camEngineLabel').textContent = USE_NATIVE && nativeDetector ? '· Native' : '· ZXing';
   document.getElementById('camStatus').textContent='Initializing camera…';
   document.getElementById('camStatus').className='cam-status';
   document.getElementById('camOverlay').classList.add('active');
   cameraActive=true;
+
   try{
-    if(typeof ZXing==='undefined') throw new Error('Scanner library not loaded — check your connection.');
-    const hints=new Map();
-    hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
-      ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,
-      ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,
-      ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,
-      ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.DATA_MATRIX,
-      ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.PDF_417,
-      ZXing.BarcodeFormat.CODE_93,ZXing.BarcodeFormat.INTERLEAVED_2_OF_5,
-    ]);
-    codeReader=new ZXing.BrowserMultiFormatReader(hints,150);
-    const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}});
+    // Request camera — high resolution, back-facing, continuous autofocus
+    const stream=await navigator.mediaDevices.getUserMedia({video:{
+      facingMode:{ideal:'environment'},
+      width:{ideal:1920}, height:{ideal:1080}
+    }});
     const track=stream.getVideoTracks()[0];
-    if(track&&track.applyConstraints){try{await track.applyConstraints({advanced:[{focusMode:'continuous'}]});}catch(e){}}
+    // Enable continuous autofocus (key for speed)
+    if(track&&track.applyConstraints){
+      try{ await track.applyConstraints({advanced:[{focusMode:'continuous'},{zoom:1}]}); }catch(e){}
+    }
     const video=document.getElementById('camVideo');
     video.srcObject=stream; await video.play();
-    document.getElementById('camStatus').textContent='Ready — point at barcode';
-    codeReader.decodeFromStream(stream,video,(result)=>{
-      if(!cameraActive||!result) return;
-      const code=result.getText();
-      document.getElementById('camStatus').textContent='✓ '+code;
-      document.getElementById('camStatus').className='cam-status found';
-      if(navigator.vibrate) navigator.vibrate([80,40,80]);
-      setTimeout(()=>{ closeCamera(); handleScannedCode(code,camTarget); },350);
-    });
+
+    if(USE_NATIVE && nativeDetector){
+      // ── PATH 1: Native BarcodeDetector (hardware-accelerated, instant) ──
+      document.getElementById('camStatus').textContent='Ready — point at barcode';
+      const scanFrame=async()=>{
+        if(!cameraActive) return;
+        try{
+          const barcodes=await nativeDetector.detect(video);
+          if(barcodes.length){
+            const code=barcodes[0].rawValue;
+            document.getElementById('camStatus').textContent='✓ '+code;
+            document.getElementById('camStatus').className='cam-status found';
+            if(navigator.vibrate) navigator.vibrate([60,30,60]);
+            cameraActive=false; // stop loop before async close
+            closeCamera();
+            handleScannedCode(code,camTarget);
+            return;
+          }
+        } catch(e){ /* frame not ready yet */ }
+        if(cameraActive) requestAnimationFrame(scanFrame);
+      };
+      requestAnimationFrame(scanFrame);
+    } else {
+      // ── PATH 2: ZXing fallback (JS-based) ──
+      if(typeof ZXing==='undefined') throw new Error('Scanner library not loaded.');
+      const hints=new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER,true);
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+        ZXing.BarcodeFormat.CODE_128,ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.EAN_13,ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.QR_CODE,ZXing.BarcodeFormat.DATA_MATRIX,
+        ZXing.BarcodeFormat.ITF,ZXing.BarcodeFormat.PDF_417,
+        ZXing.BarcodeFormat.CODE_93,
+      ]);
+      codeReader=new ZXing.BrowserMultiFormatReader(hints,100);
+      document.getElementById('camStatus').textContent='Ready — point at barcode';
+      codeReader.decodeFromStream(stream,video,(result)=>{
+        if(!cameraActive||!result) return;
+        const code=result.getText();
+        document.getElementById('camStatus').textContent='✓ '+code;
+        document.getElementById('camStatus').className='cam-status found';
+        if(navigator.vibrate) navigator.vibrate([60,30,60]);
+        setTimeout(()=>{ closeCamera(); handleScannedCode(code,camTarget); },200);
+      });
+    }
   } catch(e){
     let msg=e.message;
     if(e.name==='NotAllowedError') msg='Camera permission denied — check browser settings.';
