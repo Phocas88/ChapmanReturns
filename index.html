@@ -2016,6 +2016,9 @@ let ccMissing      = [];
 let ccNotCounted   = []; // items in bin report with no matching scan → full subtract
 let ccMode         = 'scan';
 let ccListener     = null;
+let ccLastExportFp   = null; // duplicate export fingerprint
+let ccLastExportFile = null;
+let ccLastExportTime = null;
 
 function setCCMode(mode){
   if(mode==='manager' && pinIsSet() && !sessionOk()){
