@@ -1793,6 +1793,7 @@ function updateExportLog(){
 
 // ── APPRISE EXPORT (with duplicate detection + PIN override) ──
 async function exportToApprise(){
+  console.log('[Export] exportToApprise called, queue:', queue.length, 'dbReady:', dbReady);
   // If queue is empty locally, try a fresh fetch from Firebase first
   if(!queue.length && dbReady && db){
     try{
@@ -1813,38 +1814,48 @@ async function exportToApprise(){
 }
 
 async function doActualExport(){
+  console.log('[Export] doActualExport called, queue length:', queue.length);
   const d=new Date();
   const pad=n=>String(n).padStart(2,'0');
   const filename=`Apprise_RTP_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.xlsx`;
 
   // Build rows: A=ProductCode, B=LocationPrefix, C=BinLocation, D='', E='', F='each', G=Qty, H='GenQtyAdj', I='Returns', J=''
   const dataRows = queue.map(i => [
-    i.pc || i.product_code,           // A: Product Code
-    i.loc || i.location,              // B: Location Prefix
-    i.bin,                            // C: Bin Location
-    '',                               // D: blank
-    '',                               // E: blank
-    'each',                           // F: each
-    i.qty || i.quantity,              // G: Qty
-    'GenQtyAdj',                      // H: Adjustment code
-    'Returns',                        // I: Remark
-    ''                                // J: blank
+    i.pc || i.product_code || '',
+    i.loc || i.location || '',
+    i.bin || '',
+    '',
+    '',
+    'each',
+    Number(i.qty || i.quantity || 0),
+    'GenQtyAdj',
+    'Returns',
+    ''
   ]);
 
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(dataRows);
+  console.log('[Export] dataRows:', dataRows.length, 'first row:', dataRows[0]);
 
-  // Force Bin (col C, index 2) as text to preserve leading zeros
-  const range = XLSX.utils.decode_range(ws['!ref']||'A1');
-  for(let R=0; R<=range.e.r; R++){
-    const cell = XLSX.utils.encode_cell({r:R, c:2});
-    if(ws[cell]){ ws[cell].t='s'; ws[cell].z='@'; }
+  try{
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(dataRows);
+
+    // Force Bin (col C, index 2) as text to preserve leading zeros
+    const range = XLSX.utils.decode_range(ws['!ref']||'A1');
+    for(let R=0; R<=range.e.r; R++){
+      const cell = XLSX.utils.encode_cell({r:R, c:2});
+      if(ws[cell]){ ws[cell].t='s'; ws[cell].z='@'; }
+    }
+
+    ws['!cols']=[{wch:16},{wch:10},{wch:14},{wch:6},{wch:6},{wch:8},{wch:8},{wch:12},{wch:10},{wch:6}];
+    XLSX.utils.book_append_sheet(wb, ws, 'RTP Import');
+    console.log('[Export] calling XLSX.writeFile:', filename);
+    XLSX.writeFile(wb, filename);
+    console.log('[Export] XLSX.writeFile completed');
+  } catch(e){
+    console.error('[Export] XLSX error:', e);
+    showToast('err','Export Failed', e.message || 'Unknown error. Check console.');
+    return;
   }
-
-  // Column widths
-  ws['!cols']=[{wch:16},{wch:10},{wch:14},{wch:6},{wch:6},{wch:8},{wch:8},{wch:12},{wch:10},{wch:6}];
-  XLSX.utils.book_append_sheet(wb, ws, 'RTP Import');
-  XLSX.writeFile(wb, filename);
 
   recordExport(filename);
   showToast('ok','Exported!',`${queue.length} items · moving to history…`);
