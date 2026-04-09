@@ -1600,10 +1600,10 @@ function switchTab(tab){
 function reallySwitch(tab){
   ['scan','queue','history','count','manager'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==tab));
   document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',['scan','queue','history','count','manager'][i]===tab));
-  if(tab==='scan') setTimeout(()=>{ if(activeBin) focusProductField(); else focusBinField(); }, 100);
+  if(tab==='scan') setTimeout(()=>focusProductField(), 100);
   if(tab==='queue') fetchQueue();
   if(tab==='count') initCountTab();
-  if(tab==='manager') updateManagerUI();
+  if(tab==='manager'){ fetchQueue(); updateManagerUI(); }
 }
 
 function useSuggestedBin(){ document.getElementById('fBin').value=document.getElementById('suggestedBinVal').textContent; focusQty(); }
@@ -1792,12 +1792,20 @@ function updateExportLog(){
 }
 
 // ── APPRISE EXPORT (with duplicate detection + PIN override) ──
-function exportToApprise(){
-  if(!queue.length){ showToast('err','Queue Empty','Add items before exporting.'); return; }
+async function exportToApprise(){
+  // If queue is empty locally, try a fresh fetch from Firebase first
+  if(!queue.length && dbReady && db){
+    try{
+      const snap = await db.collection('rtp_queue').orderBy('scanned_at','asc').get();
+      queue = snap.docs.map(d=>({firebaseId:d.id,...d.data()}));
+      updateQueueUI();
+      updateManagerUI();
+    } catch(e){ console.error('Queue fetch on export:',e); }
+  }
+  if(!queue.length){ showToast('err','Queue Empty','No items in queue to export.'); return; }
   const fp=getExportFingerprint();
   const dup=findDuplicateExport(fp);
   if(dup){
-    // Warn and require PIN override
     openPinOverlay(null,'Already exported on '+dup.timestamp.toLocaleString()+'. Enter PIN to re-print.',()=>doActualExport());
     return;
   }
