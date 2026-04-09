@@ -1235,14 +1235,6 @@ function updateLocChip(loc){ document.getElementById('locChip').textContent=loc?
 function getItemLoc(){ return document.getElementById('fLoc').value||null; }
 function onItemLocChange(){ onProductInput(); }
 
-// ══════════════════════════════════════════════════════════════
-// ── SCAN FLOW: Bin-first, multi-product per bin ──
-// ══════════════════════════════════════════════════════════════
-let activeBin = '';          // currently locked bin
-let stagedItems = [];        // items staged for current bin before queue commit
-
-// ── Step 1: Bin input ──
-
 // ── CAMERA ──
 let codeReader=null, cameraActive=false, camTarget=null;
 const CAM_LABELS={bin:'Scanning Bin Location',product:'Scanning Product Code',ccBin:'Scanning Bin (Cycle Count)',ccProd:'Scanning Product (Cycle Count)'};
@@ -1359,11 +1351,6 @@ function handleScannedCode(code,target){
     document.getElementById('ccCounted').focus();
   }
 }
-
-// ── Step 2: Product scanning ──
-
-
-
 
 // ── RETURNS SCAN — product-first flow ──
 // Scan product → auto-detect location + suggest primary bin → enter qty → enter/scan bin → Add to Queue
