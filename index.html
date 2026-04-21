@@ -656,6 +656,7 @@
   <div class="cc-tabs" style="margin-bottom:14px;">
     <div class="cc-tab active" id="ccModeTabScan" onclick="setCCMode('scan')">📱 Handheld — Scan</div>
     <div class="cc-tab" id="ccModeTabMgr" onclick="setCCMode('manager')">🖥 Manager — Compare <span class="tab-lock">🔒</span></div>
+    <div class="cc-tab" id="ccModeTabArchive" onclick="setCCMode('archive')">📂 Count Archive <span class="tab-lock">🔒</span></div>
   </div>
 
   <!-- ── HANDHELD SCAN MODE ── -->
@@ -897,6 +898,42 @@
       <div id="ccMissingList" class="hidden"></div>
       <div id="ccNotCountedList" class="hidden"></div>
     </div>
+  </div>
+
+  <!-- ── ARCHIVE MODE ── -->
+  <div id="ccModeArchive" class="hidden">
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
+      Browse all past cycle count sessions. Filter by counter, date or division. Restore any session back to the active count to re-run the comparison.
+    </div>
+
+    <!-- Filters -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <input id="archFilterCounter" type="text" placeholder="Counter name…" class="finput" style="flex:1;min-width:120px;"
+        oninput="filterArchive()">
+      <input id="archFilterDate" type="date" class="finput" style="flex:1;min-width:130px;"
+        onchange="filterArchive()">
+      <select id="archFilterDiv" class="finput" style="flex:1;min-width:90px;" onchange="filterArchive()">
+        <option value="">All Divisions</option>
+        <option value="BC">BC</option><option value="EE">EE</option>
+        <option value="FS">FS</option><option value="GT">GT</option>
+        <option value="NH">NH</option><option value="VP">VP</option>
+      </select>
+      <button onclick="loadArchive()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text-dim);font-size:13px;cursor:pointer;white-space:nowrap;">🔄 Refresh</button>
+    </div>
+
+    <!-- Sort controls -->
+    <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;">
+      <span style="font-size:11px;color:var(--text-dim);">Sort by:</span>
+      <button onclick="setArchSort('date')" id="archSortDate" style="background:var(--accent-dim);border:1px solid var(--accent);border-radius:6px;color:var(--accent);font-size:11px;padding:4px 10px;cursor:pointer;font-weight:700;">Date ↓</button>
+      <button onclick="setArchSort('counter')" id="archSortCounter" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:11px;padding:4px 10px;cursor:pointer;">Counter</button>
+      <button onclick="setArchSort('division')" id="archSortDiv" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:11px;padding:4px 10px;cursor:pointer;">Division</button>
+    </div>
+
+    <!-- Stats bar -->
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;" id="archStats">Loading…</div>
+
+    <!-- Results list -->
+    <div id="archiveList"><div class="cc-empty">Tap Refresh to load archive.</div></div>
   </div>
 
 </div>
@@ -2064,13 +2101,14 @@ let ccLastExportFile = null;
 let ccLastExportTime = null;
 
 function setCCMode(mode){
-  if(mode==='manager' && pinIsSet() && !sessionOk()){
-    openPinOverlay(null,'Enter PIN to access Manager — Compare',()=>_setCCMode('manager'));
+  if((mode==='manager'||mode==='archive') && pinIsSet() && !sessionOk()){
+    const label = mode==='archive' ? 'Count Archive' : 'Manager — Compare';
+    openPinOverlay(null,'Enter PIN to access '+label, ()=>_setCCMode(mode));
     return;
   }
-  if(mode==='manager' && !pinIsSet()){
-    showToast('warn','PIN Required','Set a PIN in Settings to access Manager — Compare.');
-    setTimeout(()=>showPinSetupForm('Set a PIN to protect Manager — Compare:'),400);
+  if((mode==='manager'||mode==='archive') && !pinIsSet()){
+    showToast('warn','PIN Required','Set a PIN in Settings to access this area.');
+    setTimeout(()=>showPinSetupForm('Set a PIN:'),400);
     return;
   }
   _setCCMode(mode);
@@ -2086,15 +2124,15 @@ function toggleMgrFeed(){
 
 function _setCCMode(mode){
   ccMode = mode;
-  document.getElementById('ccModeScan').classList.toggle('hidden', mode!=='scan');
-  document.getElementById('ccModeMgr').classList.toggle('hidden',  mode!=='manager');
-  document.getElementById('ccModeTabScan').classList.toggle('active', mode==='scan');
-  document.getElementById('ccModeTabMgr').classList.toggle('active',  mode==='manager');
-  if(mode==='scan') setTimeout(()=>document.getElementById('ccProduct').focus(),100);
-  if(mode==='manager'){
-    // Manager always sees live feed of all counters
-    startCCListener();
-  }
+  document.getElementById('ccModeScan').classList.toggle('hidden',    mode!=='scan');
+  document.getElementById('ccModeMgr').classList.toggle('hidden',     mode!=='manager');
+  document.getElementById('ccModeArchive').classList.toggle('hidden', mode!=='archive');
+  document.getElementById('ccModeTabScan').classList.toggle('active',    mode==='scan');
+  document.getElementById('ccModeTabMgr').classList.toggle('active',     mode==='manager');
+  document.getElementById('ccModeTabArchive').classList.toggle('active', mode==='archive');
+  if(mode==='scan') setTimeout(()=>{ const f=document.getElementById('ccProduct'); if(f) f.focus(); },100);
+  if(mode==='manager') startCCListener();
+  if(mode==='archive') loadArchive();
 }
 
 function initCountTab(){
@@ -2941,6 +2979,192 @@ function exportOpsConflicts(){
     exported_by: currentUser||'',
     exported_at: firebase.firestore.FieldValue.serverTimestamp()
   }).catch(e=>console.error(e));
+}
+
+// ── COUNT ARCHIVE ──
+let archiveDocs       = [];  // all fetched archive docs
+let archiveFiltered   = [];  // after filters applied
+let archiveSortField  = 'date';
+let archiveSortDir    = 'desc';
+
+async function loadArchive(){
+  document.getElementById('archiveList').innerHTML = '<div class="cc-empty">Loading…</div>';
+  document.getElementById('archStats').textContent = 'Loading…';
+  if(!dbReady||!db){ document.getElementById('archiveList').innerHTML='<div class="cc-empty">Not connected to Firebase.</div>'; return; }
+  try{
+    const snap = await db.collection('rtp_cc_archive').get();
+    archiveDocs = snap.docs.map(d=>({id:d.id,...d.data()}));
+    filterArchive();
+  } catch(e){
+    document.getElementById('archiveList').innerHTML = '<div class="cc-empty">Error loading archive: '+e.message+'</div>';
+  }
+}
+
+function filterArchive(){
+  const counterFilter = (document.getElementById('archFilterCounter').value||'').trim().toLowerCase();
+  const dateFilter    = document.getElementById('archFilterDate').value; // YYYY-MM-DD
+  const divFilter     = document.getElementById('archFilterDiv').value;
+
+  archiveFiltered = archiveDocs.filter(d=>{
+    if(counterFilter && !(d.scanned_by||'').toLowerCase().includes(counterFilter)) return false;
+    if(divFilter && d.loc !== divFilter) return false;
+    if(dateFilter){
+      const ts = d.scanned_at?.toDate ? d.scanned_at.toDate() : new Date(d.scanned_at||0);
+      const docDate = ts.toISOString().slice(0,10);
+      if(docDate !== dateFilter) return false;
+    }
+    return true;
+  });
+  sortAndRenderArchive();
+}
+
+function setArchSort(field){
+  if(archiveSortField === field){
+    archiveSortDir = archiveSortDir==='asc' ? 'desc' : 'asc';
+  } else {
+    archiveSortField = field;
+    archiveSortDir = field==='date' ? 'desc' : 'asc';
+  }
+  // Update button styles
+  ['date','counter','division'].forEach(f=>{
+    const idMap = {date:'archSortDate', counter:'archSortCounter', division:'archSortDiv'};
+    const btn = document.getElementById(idMap[f]);
+    if(!btn) return;
+    const active = f===field;
+    btn.style.background = active ? 'var(--accent-dim)' : 'var(--surface2)';
+    btn.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+    btn.style.color       = active ? 'var(--accent)'  : 'var(--text-dim)';
+    btn.style.fontWeight  = active ? '700' : '400';
+    if(active) btn.textContent = {date:'Date',counter:'Counter',division:'Division'}[f] + (archiveSortDir==='asc' ? ' ↑' : ' ↓');
+    else btn.textContent = {date:'Date',counter:'Counter',division:'Division'}[f];
+  });
+  sortAndRenderArchive();
+}
+
+function sortAndRenderArchive(){
+  const getKey = d => {
+    if(archiveSortField==='date')     { const ts=d.scanned_at?.toDate?d.scanned_at.toDate():new Date(d.scanned_at||0); return ts.getTime(); }
+    if(archiveSortField==='counter')  return (d.scanned_by||'').toLowerCase();
+    if(archiveSortField==='division') return (d.loc||'').toLowerCase();
+    return 0;
+  };
+  archiveFiltered.sort((a,b)=>{
+    const ka=getKey(a), kb=getKey(b);
+    if(ka<kb) return archiveSortDir==='asc'?-1:1;
+    if(ka>kb) return archiveSortDir==='asc'?1:-1;
+    return 0;
+  });
+
+  // Group by export_file (session) so each export is one collapsible group
+  const groups = {};
+  archiveFiltered.forEach(d=>{
+    const key = d.export_file || 'unknown';
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  });
+
+  const groupKeys = Object.keys(groups);
+  const totalEntries = archiveFiltered.length;
+  const counters = [...new Set(archiveFiltered.map(d=>d.scanned_by||'?'))];
+  const divs     = [...new Set(archiveFiltered.filter(d=>d.loc).map(d=>d.loc))];
+  document.getElementById('archStats').textContent =
+    `${totalEntries} entries · ${groupKeys.length} session(s) · counters: ${counters.join(', ')||'—'} · divisions: ${divs.join('/')||'—'}`;
+
+  if(!totalEntries){
+    document.getElementById('archiveList').innerHTML = '<div class="cc-empty">No archived counts match the filters.</div>';
+    return;
+  }
+
+  document.getElementById('archiveList').innerHTML = groupKeys.map((sessionKey, gi)=>{
+    const entries = groups[sessionKey];
+    const sample  = entries[0];
+    const ts      = sample.archived_at?.toDate ? sample.archived_at.toDate() : new Date(sample.archived_at||0);
+    const dateStr = ts.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
+    const exportedBy = sample.exported_by || '—';
+    const countersInGroup = [...new Set(entries.map(e=>e.scanned_by||'?'))].join(', ');
+    const divsInGroup     = [...new Set(entries.filter(e=>e.loc).map(e=>e.loc))].join('/');
+    const zeroBins        = entries.filter(e=>e.zero_bin).length;
+    const realEntries     = entries.filter(e=>!e.zero_bin).length;
+
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;">
+      <div style="padding:12px 14px;display:flex;align-items:flex-start;gap:10px;cursor:pointer;"
+           onclick="toggleArchGroup(${gi})">
+        <div style="flex:1;">
+          <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px;">${sessionKey}</div>
+          <div style="font-size:11px;color:var(--text-dim);line-height:1.6;">
+            📅 ${dateStr} · 👤 exported by ${exportedBy}<br>
+            Counters: <strong>${countersInGroup}</strong> · Divisions: <strong style="color:var(--accent);">${divsInGroup||'—'}</strong><br>
+            ${realEntries} counts${zeroBins?' · '+zeroBins+' zero-bin flags':''}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;">
+          <button onclick="event.stopPropagation();restoreArchiveSession('${sessionKey.replace(/'/g,"\\'")}')"
+                  style="background:var(--accent);color:#0a0e1a;border:none;border-radius:7px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">
+            ↺ Restore to Active
+          </button>
+          <span style="font-size:10px;color:var(--text-muted);">▾ show entries</span>
+        </div>
+      </div>
+      <div id="archGroup_${gi}" class="hidden" style="border-top:1px solid var(--border);max-height:320px;overflow-y:auto;padding:8px 14px;">
+        ${entries.map(e=>{
+          const ets = e.scanned_at?.toDate?e.scanned_at.toDate():new Date(e.scanned_at||0);
+          const etStr = ets.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+          if(e.zero_bin) return `<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;color:var(--danger);">⬤ ZERO BIN · ${e.bin} · 👤 ${e.scanned_by||'?'} · ${etStr}</div>`;
+          return `<div style="padding:5px 0;border-bottom:1px solid var(--border);font-size:11px;color:var(--text);">
+            <span style="font-family:var(--mono);font-weight:700;">${e.pc}</span>
+            · 📦 ${e.bin}
+            · <span style="color:var(--accent);">${e.loc||'?'}</span>
+            · ×${e.counted}
+            · 👤 ${e.scanned_by||'?'}
+            · ${etStr}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleArchGroup(gi){
+  const el = document.getElementById('archGroup_'+gi);
+  if(el) el.classList.toggle('hidden');
+}
+
+async function restoreArchiveSession(exportFile){
+  if(!dbReady||!db){ showToast('err','Not Connected','Firebase not connected.'); return; }
+  const entries = archiveDocs.filter(d=>d.export_file===exportFile);
+  if(!entries.length){ showToast('err','Not Found','No entries found for this session.'); return; }
+
+  // Check if rtp_cycle_count already has entries — warn before overwriting
+  const currentSnap = await db.collection('rtp_cycle_count').get();
+  if(!currentSnap.empty){
+    if(!confirm(`Active count has ${currentSnap.size} entries. Restoring this session will ADD to the existing entries (not replace). Continue?`)) return;
+  }
+
+  showToast('ok','Restoring…', `Writing ${entries.length} entries back to active count…`);
+  try{
+    // Write in batches of 400 (Firestore batch limit is 500)
+    const BATCH_SIZE = 400;
+    for(let i=0; i<entries.length; i+=BATCH_SIZE){
+      const batch = db.batch();
+      entries.slice(i, i+BATCH_SIZE).forEach(e=>{
+        const {id, archived_at, export_file, exported_by, client_id, ...data} = e;
+        const ref = db.collection('rtp_cycle_count').doc();
+        batch.set(ref, {
+          ...data,
+          restored_from: exportFile,
+          scanned_at: e.scanned_at  // preserve original scan time
+        });
+      });
+      await batch.commit();
+    }
+    showToast('ok','Restored!', `${entries.length} entries loaded. Switch to Manager — Compare and run the report.`);
+    // Switch to manager so they can immediately run the compare
+    _setCCMode('manager');
+    startCCListener();
+  } catch(e){
+    console.error(e);
+    showToast('err','Restore Failed', e.message);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
