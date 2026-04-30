@@ -2687,28 +2687,6 @@ function renderCCCompareResults(){
   }
 }
 
-  // ── Not Counted list ──
-  const ncEl = document.getElementById('ccNotCountedList');
-  if(!ccNotCounted.length){
-    ncEl.innerHTML='<div class="cc-empty">No uncounted items. All bin report items were scanned. ✓</div>';
-  } else {
-    ncEl.innerHTML=
-      `<div style="font-size:12px;color:var(--danger);margin-bottom:10px;line-height:1.5;background:var(--danger-dim);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px 12px;">
-        🔴 These items appear in the Inventory Bin Report but were <strong>not scanned</strong> during the cycle count. The full QOH is subtracted automatically (counted = 0). Items with allocation conflicts are shown in the Ops Conflicts tab instead.
-      </div>`
-      + ccNotCounted.map(e=>`<div class="cc-result-card short">
-          <div class="cc-rc-info">
-            <div class="cc-rc-pc">${e.pc}</div>
-            <div class="cc-rc-bin">📦 ${e.bin}${e.loc?` · <span style="color:var(--accent)">${e.loc}</span>`:''}</div>
-            <div class="cc-rc-meta">
-              <span>System: <strong>${e.qoh}</strong></span>
-              <span>Counted: <strong>0</strong> (not scanned)</span>
-            </div>
-          </div>
-          <div class="cc-rc-delta neg">${e.exportDelta}</div>
-        </div>`).join('');
-  }
-
 function showCCView(view){
   document.getElementById('ccAdjList').classList.toggle('hidden',        view!=='adj');
   document.getElementById('ccConflictList').classList.toggle('hidden',   view!=='conflict');
