@@ -681,6 +681,8 @@
         </div>
       </div>
       <button class="btn" onclick="startCCSession()" style="background:rgba(139,92,246,0.85);color:#fff;">Start Counting →</button>
+      <button onclick="testFirebase()" style="margin-top:8px;background:none;border:1px solid var(--border);border-radius:8px;padding:8px;width:100%;color:var(--text-dim);font-size:12px;cursor:pointer;">🔧 Test Firebase Connection</button>
+      <div id="fbTestResult" style="font-size:11px;margin-top:6px;padding:8px;border-radius:6px;display:none;word-break:break-all;"></div>
     </div>
 
     <!-- Active scan session (shown after name entered) -->
@@ -1123,12 +1125,15 @@ function initFirebase(){
   try{
     firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
-    // Enable offline persistence to reduce reads on reconnect
-    db.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    db.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn('Persistence:',e));
     dbReady=true;
     setDbStatus('ok','Firebase');
     startQueueListener();
-  } catch(e){ setDbStatus('err','Init failed'); console.error(e); }
+  } catch(e){
+    setDbStatus('err','Init failed: '+e.message);
+    console.error('Firebase init error:',e);
+    showToast('err','Firebase Failed',e.message);
+  }
 }
 function setDbStatus(s,l){ document.getElementById('dbDot').className='db-dot '+(s==='ok'?'ok':'err'); document.getElementById('dbLabel').textContent=l; }
 
@@ -2306,7 +2311,6 @@ function clearCCForm(){
 function startCCListener(){
   if(!dbReady||!db) return;
   if(ccListener) ccListener();
-  // Listen to ALL entries today from ALL counters — manager and counters both see everything
   ccListener = db.collection('rtp_cycle_count')
     .onSnapshot(snap=>{
       const todayStart = new Date(); todayStart.setHours(0,0,0,0);
@@ -2322,11 +2326,12 @@ function startCCListener(){
           return ta - tb;
         });
       renderCCScanList();
-      // Update count badge in Manager mode too
       const badge = document.getElementById('ccMgrCountBadge');
       if(badge) badge.textContent = ccEntries.length;
     }, e=>{
       console.error('CC listener error:',e);
+      showToast('err','Firestore Error', e.code+': '+e.message);
+      setDbStatus('err', e.code||'DB Error');
     });
 }
 
@@ -3121,9 +3126,32 @@ async function restoreArchiveSession(exportFile){
     console.error(e);
     showToast('err','Restore Failed', e.message);
   }
-} 
+}
 
-// ══════════════════════════════════════════════════════════════
+async function testFirebase(){
+  const el = document.getElementById('fbTestResult');
+  el.style.display='block';
+  el.style.background='var(--surface2)';
+  el.textContent='Testing…';
+  if(!db||!dbReady){ el.textContent='❌ db not initialized — Firebase failed to start.'; el.style.background='var(--danger-dim)'; return; }
+  try{
+    const snap = await db.collection('rtp_cycle_count').limit(5).get();
+    el.style.background='rgba(0,212,170,0.1)';
+    el.textContent=`✓ Firebase connected. rtp_cycle_count has ${snap.size} docs (showing up to 5). Rules are open.`;
+    // Also show today's count
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    const all = await db.collection('rtp_cycle_count').get();
+    const todayDocs = all.docs.filter(d=>{
+      const ts=d.data().scanned_at?.toDate?d.data().scanned_at.toDate():new Date(d.data().scanned_at||0);
+      return ts>=todayStart;
+    });
+    el.textContent+=` Total in collection: ${all.size}. Today's entries: ${todayDocs.length}.`;
+  } catch(e){
+    el.style.background='var(--danger-dim)';
+    el.textContent=`❌ Firebase error: ${e.code} — ${e.message}`;
+  }
+}
+
 // ── BOOT ──
 initFirebase();
 refreshPinCard();
