@@ -878,10 +878,7 @@
           <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:#a78bfa;" id="ccStatMissing">0</div>
           <div style="font-size:9px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.8px;">Bin Missing</div>
         </div>
-        <div style="background:var(--danger-dim);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
-          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--danger);" id="ccStatNotCounted">0</div>
-          <div style="font-size:9px;color:var(--danger);text-transform:uppercase;letter-spacing:0.8px;">Not Counted</div>
-        </div>
+
       </div>
 
       <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:6px;">⬇ Export Apprise XLSX</button>
@@ -891,12 +888,12 @@
         <div class="cc-tab active" id="ccTabAdj" onclick="showCCView('adj')">📋 Adjustments</div>
         <div class="cc-tab" id="ccTabConflict" onclick="showCCView('conflict')">⚠️ Ops Conflicts</div>
         <div class="cc-tab" id="ccTabMissing" onclick="showCCView('missing')">📍 Bin Missing</div>
-        <div class="cc-tab" id="ccTabNotCounted" onclick="showCCView('notcounted')">🔴 Not Counted</div>
+
       </div>
       <div id="ccAdjList"></div>
       <div id="ccConflictList" class="hidden"></div>
       <div id="ccMissingList" class="hidden"></div>
-      <div id="ccNotCountedList" class="hidden"></div>
+
     </div>
   </div>
 
@@ -2556,7 +2553,8 @@ async function runCCCompare(){
     }
   }
 
-  // ── Forward pass: scanned entries vs bin report ──
+  // ── Forward pass only: scanned entries vs bin report ──
+  // Bins in the report that were NOT counted are IGNORED — only counted bins are adjusted.
   for(const [key,scanEntry] of Object.entries(scanned)){
     const binRec = ccBinReport[key];
 
@@ -2592,47 +2590,6 @@ async function runCCCompare(){
     }
   }
 
-  // ── Reverse pass: bin report items with NO matching scan → subtract full QOH ──
-  for(const [key, binRec] of Object.entries(ccBinReport)){
-    if(scanned[key]) continue; // already handled above
-
-    // Item exists in system but was never counted → treat counted as 0, delta = -QOH
-    const delta      = -binRec.qoh;             // subtract everything
-    const alloc      = binRec.alloc;
-    const avail      = binRec.available;        // qoh - alloc = max we can reduce
-    const exportDelta = -(avail);               // can only subtract down to alloc
-
-    const result = {
-      pc:       binRec.pc,
-      bin:      binRec.bin,
-      loc:      '', // location not known from bin report alone — will be looked up
-      counted:  0,
-      qoh:      binRec.qoh,
-      alloc,
-      avail,
-      delta,
-      scanned_by: '',
-      isNotCounted: true,
-      exportDelta,
-    };
-
-    // Try to resolve location from product DB
-    const found = lookupProduct(binRec.pc);
-    if(found) result.loc = found.loc;
-
-    // Check if subtracting to zero would conflict with allocation
-    if(alloc > 0){
-      // Can't go below alloc — this is a conflict too
-      result.isConflict   = true;
-      result.conflictNote = `Item not counted (assumed 0). System shows ${binRec.qoh} with ${alloc} allocated. Max adjustment: ${exportDelta} (to ${alloc}). Remainder needs ops to cancel order.`;
-      ccConflicts.push(result);
-    } else {
-      // No allocation — safe to subtract full QOH
-      result.exportDelta = delta; // full subtract
-      ccNotCounted.push(result);
-    }
-  }
-
   renderCCCompareResults();
   document.getElementById('ccCompareResults').classList.remove('hidden');
   const ts=new Date();
@@ -2650,7 +2607,7 @@ function renderCCCompareResults(){
   document.getElementById('ccStatAdj').textContent         = adjs;
   document.getElementById('ccStatConflict').textContent    = ccConflicts.length;
   document.getElementById('ccStatMissing').textContent     = ccMissing.length;
-  document.getElementById('ccStatNotCounted').textContent  = ccNotCounted.length;
+
 
   // ── Adjustments list ──
   const adjEl = document.getElementById('ccAdjList');
@@ -2751,11 +2708,11 @@ function showCCView(view){
   document.getElementById('ccAdjList').classList.toggle('hidden',        view!=='adj');
   document.getElementById('ccConflictList').classList.toggle('hidden',   view!=='conflict');
   document.getElementById('ccMissingList').classList.toggle('hidden',    view!=='missing');
-  document.getElementById('ccNotCountedList').classList.toggle('hidden', view!=='notcounted');
+
   document.getElementById('ccTabAdj').classList.toggle('active',         view==='adj');
   document.getElementById('ccTabConflict').classList.toggle('active',    view==='conflict');
   document.getElementById('ccTabMissing').classList.toggle('active',     view==='missing');
-  document.getElementById('ccTabNotCounted').classList.toggle('active',  view==='notcounted');
+
 }
 
 function getCCExportFingerprint(){
@@ -2764,13 +2721,12 @@ function getCCExportFingerprint(){
 }
 
 function exportCycleCount(){
-  const adjRows        = ccCompared.filter(e=>e.delta!==0);
-  const conflictRows   = ccConflicts;
-  const missingRows    = ccMissing;
-  const notCountedRows = ccNotCounted;
-  const allExport      = [...adjRows, ...conflictRows, ...missingRows, ...notCountedRows];
+  const adjRows      = ccCompared.filter(e=>e.delta!==0);
+  const conflictRows = ccConflicts;
+  const missingRows  = ccMissing;
+  const allExport    = [...adjRows, ...conflictRows, ...missingRows];
 
-  console.log('[Export CC] adj:',adjRows.length,'conflicts:',conflictRows.length,'missing:',missingRows.length,'notCounted:',notCountedRows.length,'total:',allExport.length);
+  console.log('[Export CC] adj:',adjRows.length,'conflicts:',conflictRows.length,'missing:',missingRows.length,'total:',allExport.length);
 
   if(!allExport.length){
     const reason = !ccBinLoaded ? 'No bin report uploaded yet.'
@@ -2786,15 +2742,15 @@ function exportCycleCount(){
   if(ccLastExportFp && ccLastExportFp === fp){
     const when = ccLastExportTime ? ccLastExportTime.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : 'earlier';
     if(pinIsSet() && !sessionOk()){
-      openPinOverlay(null, `Already exported at ${when}. Enter PIN to re-print.`, ()=>doExportCycleCount(allExport, adjRows, conflictRows, missingRows, notCountedRows));
+      openPinOverlay(null, `Already exported at ${when}. Enter PIN to re-print.`, ()=>doExportCycleCount(allExport, adjRows, conflictRows, missingRows));
       return;
     }
     if(!confirm(`⚠ These results were already exported at ${when}.\nFile: ${ccLastExportFile}\nRe-print anyway?`)) return;
   }
-  doExportCycleCount(allExport, adjRows, conflictRows, missingRows, notCountedRows);
+  doExportCycleCount(allExport, adjRows, conflictRows, missingRows);
 }
 
-async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows, notCountedRows){
+async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows){
   if(!allExport.length){ showToast('err','Nothing to Export','Run Compare first, then export.'); return; }
 
   const rows = allExport.map(e=>{
@@ -2846,7 +2802,7 @@ async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows,
   ccLastExportTime = new Date();
 
   showToast('ok','Exported — Archiving…',
-    `${adjRows.length} adj · ${conflictRows.length} conflicts · ${notCountedRows.length} not counted · ${missingRows.length} missing bins`);
+    `${adjRows.length} adj · ${conflictRows.length} conflicts · ${missingRows.length} missing bins`);
 
   if(dbReady&&db){
     try{
@@ -2865,7 +2821,7 @@ async function doExportCycleCount(allExport, adjRows, conflictRows, missingRows,
       await db.collection('rtp_cc_exports').add({
         filename, exported_by:currentUser||'',
         adjustments:adjRows.length, conflicts:conflictRows.length,
-        missing:missingRows.length, not_counted:notCountedRows.length,
+        missing:missingRows.length,
         exported_at:firebase.firestore.FieldValue.serverTimestamp()
       });
     } catch(e){ console.error(e); showToast('warn','Archive Warning','Export saved but could not archive: '+e.message); }
