@@ -855,6 +855,20 @@
     <div id="activityLog"><div style="font-size:12px;color:var(--text-dim);">No activity yet.</div></div>
   </div>
 
+  <!-- VP Operations Report -->
+  <div class="msection">
+    <h3>📋 VP Operations Count Report</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
+      Generates a read-only summary report for the VP of Operations. Covers all counters across both active and archived sessions. Does not affect live counts or archives.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <input id="vpReportDateFrom" type="date" class="finput" style="flex:1;min-width:130px;" title="From date (leave blank for all)">
+      <input id="vpReportDateTo" type="date" class="finput" style="flex:1;min-width:130px;" title="To date (leave blank for all)">
+    </div>
+    <button onclick="generateVPReport()" style="width:100%;padding:14px;background:#a78bfa;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;">📋 Generate Report</button>
+    <div id="vpReportStatus" style="font-size:11px;color:var(--text-dim);text-align:center;min-height:16px;"></div>
+  </div>
+
   <!-- Cycle Count Manager & Archive — accessed from Mgr tab -->
   <div class="msection" style="padding:0;overflow:hidden;">
     <div style="display:flex;border-bottom:1px solid var(--border);">
@@ -3260,8 +3274,266 @@ async function testFirebase(){
   }
 }
 
-// ── BOOT ──
-// Prevent pull-to-refresh — counters must not accidentally reload and lose session
+// ══════════════════════════════════════════════════════════════
+// ── VP OPERATIONS REPORT ──
+async function generateVPReport(){
+  const statusEl = document.getElementById('vpReportStatus');
+  if(!dbReady||!db){ statusEl.textContent='Not connected to Firebase.'; return; }
+  statusEl.textContent='Loading data…';
+
+  const dateFrom = document.getElementById('vpReportDateFrom').value;
+  const dateTo   = document.getElementById('vpReportDateTo').value;
+  const fromTs   = dateFrom ? new Date(dateFrom+'T00:00:00') : null;
+  const toTs     = dateTo   ? new Date(dateTo+'T23:59:59')   : null;
+
+  try{
+    // Fetch both collections — never modify either
+    const [liveSnap, archSnap] = await Promise.all([
+      db.collection('rtp_cycle_count').get(),
+      db.collection('rtp_cc_archive').get()
+    ]);
+
+    // Merge + deduplicate on client_id (stable doc ID we set on every write)
+    const seen = new Set();
+    const allEntries = [];
+    const addEntry = doc => {
+      const d = {id: doc.id, ...doc.data()};
+      const key = d.client_id || doc.id; // fall back to doc ID if client_id missing
+      if(seen.has(key)) return;
+      seen.add(key);
+      const ts = d.scanned_at?.toDate ? d.scanned_at.toDate() : new Date(d.scanned_at||0);
+      if(fromTs && ts < fromTs) return;
+      if(toTs   && ts > toTs)   return;
+      if(d.zero_bin) return; // exclude zero-bin markers from product stats
+      allEntries.push({...d, _ts: ts});
+    };
+    liveSnap.docs.forEach(addEntry);
+    archSnap.docs.forEach(addEntry);
+
+    if(!allEntries.length){
+      statusEl.textContent='No count entries found for the selected date range.';
+      return;
+    }
+
+    // ── Build per-counter stats ──
+    const counterMap = {};
+    allEntries.forEach(e=>{
+      const name = e.scanned_by || 'Unknown';
+      if(!counterMap[name]) counterMap[name] = {
+        name, entries:[], bins:new Set(), divisions:new Set(),
+        totalQty:0, pcs:new Set()
+      };
+      const c = counterMap[name];
+      c.entries.push(e);
+      c.bins.add(e.bin||'');
+      c.divisions.add(e.loc||'?');
+      c.totalQty += (parseInt(e.counted)||0);
+      c.pcs.add(e.pc||'');
+    });
+
+    // Sort entries by time, compute avg time between scans per counter
+    Object.values(counterMap).forEach(c=>{
+      c.entries.sort((a,b)=>a._ts-b._ts);
+    });
+
+    // ── Build per-division stats ──
+    const divMap = {};
+    allEntries.forEach(e=>{
+      const div = e.loc||'Unknown';
+      if(!divMap[div]) divMap[div] = {div, count:0, qty:0, pcs:new Set(), bins:new Set()};
+      divMap[div].count++;
+      divMap[div].qty   += (parseInt(e.counted)||0);
+      divMap[div].pcs.add(e.pc||'');
+      divMap[div].bins.add(e.bin||'');
+    });
+
+    // ── Compute overall stats ──
+    const totalEntries = allEntries.length;
+    const totalQty     = allEntries.reduce((s,e)=>s+(parseInt(e.counted)||0),0);
+    const uniquePCs    = new Set(allEntries.map(e=>e.pc||'')).size;
+    const uniqueBins   = new Set(allEntries.map(e=>e.bin||'')).size;
+    const counters     = Object.values(counterMap);
+    const earliest     = new Date(Math.min(...allEntries.map(e=>e._ts)));
+    const latest       = new Date(Math.max(...allEntries.map(e=>e._ts)));
+
+    const fmt = dt => dt.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
+    const fmtT = dt => dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const fmtFull = dt => fmt(dt)+' '+fmtT(dt);
+    const dateRange = dateFrom||dateTo
+      ? ((dateFrom?fmt(fromTs):'start')+' – '+(dateTo?fmt(toTs):'now'))
+      : (fmt(earliest)+' – '+fmt(latest));
+
+    const avgMinutes = (counterData) => {
+      const times = counterData.entries.map(e=>e._ts.getTime());
+      if(times.length<2) return '—';
+      const gaps = [];
+      for(let i=1;i<times.length;i++) gaps.push((times[i]-times[i-1])/60000);
+      const avg = gaps.reduce((a,b)=>a+b,0)/gaps.length;
+      return avg<1 ? '<1 min' : Math.round(avg)+' min';
+    };
+
+    // ── Generate HTML report ──
+    const reportHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VP Operations — Cycle Count Report</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1a1a2e;background:#fff;padding:24px;}
+  h1{font-size:22px;font-weight:700;color:#1a1a2e;margin-bottom:4px;}
+  .subtitle{font-size:13px;color:#555;margin-bottom:6px;}
+  .meta{font-size:11px;color:#777;margin-bottom:24px;}
+  h2{font-size:14px;font-weight:700;color:#1a1a2e;margin-bottom:10px;padding-bottom:4px;border-bottom:2px solid #a78bfa;}
+  h3{font-size:12px;font-weight:700;color:#333;margin-bottom:8px;}
+  .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px;}
+  .stat-box{background:#f8f7ff;border:1px solid #d8d0f8;border-radius:8px;padding:12px;text-align:center;}
+  .stat-val{font-size:24px;font-weight:700;color:#6d28d9;}
+  .stat-lbl{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.6px;margin-top:2px;}
+  .section{margin-bottom:32px;}
+  .counter-card{background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;margin-bottom:16px;overflow:hidden;page-break-inside:avoid;}
+  .counter-header{background:#6d28d9;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;}
+  .counter-name{font-size:14px;font-weight:700;}
+  .counter-meta{font-size:11px;opacity:0.85;}
+  .counter-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1px solid #e0e0e0;}
+  .cstat{padding:10px 12px;text-align:center;border-right:1px solid #e0e0e0;}
+  .cstat:last-child{border-right:none;}
+  .cstat-val{font-size:16px;font-weight:700;color:#6d28d9;}
+  .cstat-lbl{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:0.5px;}
+  .div-tags{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;}
+  .div-tag{background:#ede9fe;color:#6d28d9;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+  table{width:100%;border-collapse:collapse;font-size:11px;}
+  th{background:#f0ecff;color:#6d28d9;padding:6px 8px;text-align:left;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;}
+  td{padding:5px 8px;border-bottom:1px solid #f0f0f0;color:#333;}
+  tr:hover td{background:#fafafe;}
+  .div-table{margin-bottom:28px;}
+  .div-table td:nth-child(3){font-weight:700;color:#6d28d9;}
+  @media print{
+    body{padding:16px;}
+    .counter-card{page-break-inside:avoid;}
+    .section{page-break-inside:avoid;}
+    h2{page-break-after:avoid;}
+    .no-print{display:none!important;}
+    .page-break{page-break-before:always;}
+  }
+  .print-btn{background:#6d28d9;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:20px;}
+  .print-btn:hover{background:#5b21b6;}
+  .timestamp{font-size:10px;color:#999;text-align:right;margin-top:20px;}
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">🖨 Print / Save PDF</button>
+
+<h1>Cycle Count Report</h1>
+<div class="subtitle">Chapman Warehouse — VP of Operations</div>
+<div class="meta">Period: ${dateRange} &nbsp;·&nbsp; Generated: ${fmtFull(new Date())} &nbsp;·&nbsp; Counters: ${counters.length}</div>
+
+<!-- SUMMARY -->
+<div class="section">
+  <h2>Summary</h2>
+  <div class="summary-grid">
+    <div class="stat-box"><div class="stat-val">${counters.length}</div><div class="stat-lbl">Counters</div></div>
+    <div class="stat-box"><div class="stat-val">${uniqueBins}</div><div class="stat-lbl">Bins Counted</div></div>
+    <div class="stat-box"><div class="stat-val">${uniquePCs.toLocaleString()}</div><div class="stat-lbl">Unique Products</div></div>
+    <div class="stat-box"><div class="stat-val">${totalQty.toLocaleString()}</div><div class="stat-lbl">Total Units</div></div>
+    <div class="stat-box"><div class="stat-val">${totalEntries.toLocaleString()}</div><div class="stat-lbl">Count Entries</div></div>
+    <div class="stat-box"><div class="stat-val">${fmt(earliest)}</div><div class="stat-lbl">First Scan</div></div>
+    <div class="stat-box"><div class="stat-val">${fmt(latest)}</div><div class="stat-lbl">Last Scan</div></div>
+    <div class="stat-box"><div class="stat-val">${Object.keys(divMap).length}</div><div class="stat-lbl">Divisions</div></div>
+  </div>
+</div>
+
+<!-- BY DIVISION -->
+<div class="section">
+  <h2>Products by Division</h2>
+  <table class="div-table">
+    <thead><tr><th>Division</th><th>Bins</th><th>Unique Products</th><th>Count Entries</th><th>Total Units</th></tr></thead>
+    <tbody>
+      ${Object.values(divMap).sort((a,b)=>b.count-a.count).map(d=>`
+      <tr>
+        <td><strong>${d.div}</strong></td>
+        <td>${d.bins.size}</td>
+        <td>${d.pcs.size}</td>
+        <td>${d.count}</td>
+        <td>${d.qty.toLocaleString()}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+</div>
+
+<!-- PER COUNTER — page break before -->
+<div class="page-break"></div>
+<div class="section">
+  <h2>Counter Activity</h2>
+  ${counters.sort((a,b)=>b.entries.length-a.entries.length).map(c=>{
+    const first = c.entries[0]?._ts;
+    const last  = c.entries[c.entries.length-1]?._ts;
+    const dur   = first&&last ? Math.round((last-first)/60000) : 0;
+    const durStr = dur>60 ? Math.floor(dur/60)+'h '+(dur%60)+'m' : dur+'m';
+    return `
+    <div class="counter-card">
+      <div class="counter-header">
+        <div class="counter-name">👤 ${c.name}</div>
+        <div class="counter-meta">${first?fmtFull(first):''} → ${last?fmtT(last):''}</div>
+      </div>
+      <div class="counter-stats">
+        <div class="cstat"><div class="cstat-val">${c.entries.length}</div><div class="cstat-lbl">Entries</div></div>
+        <div class="cstat"><div class="cstat-val">${c.bins.size}</div><div class="cstat-lbl">Bins</div></div>
+        <div class="cstat"><div class="cstat-val">${c.pcs.size}</div><div class="cstat-lbl">Products</div></div>
+        <div class="cstat"><div class="cstat-val">${avgMinutes(c)}</div><div class="cstat-lbl">Avg Between Scans</div></div>
+      </div>
+      <div class="counter-stats" style="border-bottom:none;">
+        <div class="cstat"><div class="cstat-val">${c.totalQty.toLocaleString()}</div><div class="cstat-lbl">Total Units</div></div>
+        <div class="cstat"><div class="cstat-val">${durStr}</div><div class="cstat-lbl">Session Length</div></div>
+        <div class="cstat" style="grid-column:span 2;text-align:left;padding:10px 14px;">
+          <div class="cstat-lbl" style="margin-bottom:5px;">Divisions</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${[...c.divisions].filter(Boolean).map(d=>`<span class="div-tag">${d}</span>`).join('')}
+          </div>
+        </div>
+      </div>
+      <!-- Detail table -->
+      <div style="padding:0 0 8px;">
+        <table>
+          <thead><tr><th>#</th><th>Time</th><th>Bin</th><th>Product Code</th><th>Division</th><th>Qty</th></tr></thead>
+          <tbody>
+            ${c.entries.map((e,i)=>`
+            <tr>
+              <td style="color:#aaa;">${i+1}</td>
+              <td style="white-space:nowrap;">${fmtFull(e._ts)}</td>
+              <td style="font-family:monospace;">${e.bin||'—'}</td>
+              <td style="font-weight:600;">${e.pc||'—'}</td>
+              <td>${e.loc||'?'}</td>
+              <td style="text-align:right;font-weight:700;color:#6d28d9;">${e.counted??'—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('')}
+</div>
+
+<div class="timestamp">IC Scanner — Chapman Warehouse · Report generated ${new Date().toISOString()}</div>
+</body>
+</html>`;
+
+    // Open in new window so it can be printed/saved as PDF without affecting the app
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if(win){
+      win.document.write(reportHtml);
+      win.document.close();
+      statusEl.textContent=`Report generated: ${totalEntries} entries, ${counters.length} counter(s).`;
+    } else {
+      statusEl.textContent='Popup blocked — allow popups for this site and try again.';
+    }
+  } catch(e){
+    console.error('VP Report error:',e);
+    statusEl.textContent='Error: '+e.message;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── BOOT ── — counters must not accidentally reload and lose session
 document.addEventListener('touchmove', function(e){
   if(e.touches.length === 1){
     // Only block if at top of page and pulling down
