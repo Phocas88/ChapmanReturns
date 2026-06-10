@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>RTP Scanner</title>
+<title>IC Scanner</title>
 <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -403,8 +403,8 @@
 
 <div class="topbar">
   <div>
-    <div class="topbar-logo">⬡ RTP Scanner</div>
-    <div class="topbar-sub">Returns Transfer Pallet · Putaway</div>
+    <div class="topbar-logo">⬡ IC Scanner</div>
+    <div class="topbar-sub">Returns &amp; Cycle Count Processing</div>
   </div>
   <div style="display:flex;align-items:center;gap:8px;">
     <span style="font-size:10px;color:var(--text-dim);display:flex;align-items:center;">
@@ -652,13 +652,6 @@
 <!-- ═══ CYCLE COUNT TAB ═══ -->
 <div id="tab-count" class="main hidden">
 
-  <!-- Mode selector -->
-  <div class="cc-tabs" style="margin-bottom:14px;">
-    <div class="cc-tab active" id="ccModeTabScan" onclick="setCCMode('scan')">📱 Handheld — Scan</div>
-    <div class="cc-tab" id="ccModeTabMgr" onclick="setCCMode('manager')">🖥 Manager — Compare <span class="tab-lock">🔒</span></div>
-    <div class="cc-tab" id="ccModeTabArchive" onclick="setCCMode('archive')">📂 Count Archive <span class="tab-lock">🔒</span></div>
-  </div>
-
   <!-- ── HANDHELD SCAN MODE ── -->
   <div id="ccModeScan">
 
@@ -729,12 +722,13 @@
           <div style="font-size:12px;color:var(--text-dim);">Point scanner at product barcode</div>
         </div>
 
-        <!-- Product field — visible so scanner can type into it -->
+        <!-- Product field — scanner types here, Enter advances to qty -->
         <input class="finput" id="ccProduct" type="text" inputmode="text"
-          placeholder="Product code / UPC…" autocomplete="off" autocorrect="off" spellcheck="false"
-          style="font-size:15px;padding:13px;text-align:center;margin-bottom:8px;"
-          oninput="onCCProductInput()" onfocus="this.select();"
-          onkeydown="if(event.key==='Enter')document.getElementById('ccCounted').focus();">
+          placeholder="Scan barcode or type product code…" autocomplete="off" autocorrect="off" spellcheck="false"
+          style="font-size:17px;padding:16px;text-align:center;margin-bottom:8px;border:2px solid rgba(139,92,246,0.5);background:var(--surface2);letter-spacing:0.5px;"
+          oninput="onCCProductInput()"
+          onfocus="this.select();"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();onCCProductEnter();}">
         <input id="ccLoc" type="hidden">
         <span id="ccProductBadge" style="display:none;"></span>
 
@@ -773,128 +767,6 @@
       </div>
 
     </div>
-  </div>
-
-  <!-- ── MANAGER COMPARE MODE ── -->
-  <div id="ccModeMgr" class="hidden">
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
-      Upload the Inventory Bin Report(s), then click Compare to calculate adjustments against what the team scanned. Export the Apprise file when ready.
-    </div>
-
-    <!-- Live count feed visible to manager -->
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <span style="width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;animation:pulse 1.5s infinite;flex-shrink:0;"></span>
-        <span style="font-family:var(--mono);font-size:11px;color:var(--accent);">LIVE COUNT FEED</span>
-        <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-left:auto;" id="mgrCCCount">0 entries</span>
-      </div>
-      <div id="mgrCCScanList" style="max-height:180px;overflow-y:auto;font-size:11px;">
-        <div style="color:var(--text-dim);text-align:center;padding:12px;">Waiting for count entries…</div>
-      </div>
-    </div>
-
-    <!-- Upload bin reports (one or more divisions) -->
-    <div class="cc-step-label">1 — Upload Inventory Bin Report(s)</div>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;">Upload one file per division. You can upload multiple files — they merge into one combined report.</div>
-    <div class="cc-upload-box" onclick="document.getElementById('ccFileInput').click()"
-      ondragover="event.preventDefault();this.classList.add('drag')"
-      ondragleave="this.classList.remove('drag')"
-      ondrop="event.preventDefault();this.classList.remove('drag');handleCCFile(event.dataTransfer.files[0])">
-      <div class="cc-upload-icon">📂</div>
-      <div class="cc-upload-text">Tap to upload a Bin Report</div>
-      <div class="cc-upload-sub">Excel or CSV · A=Bin, B=Product Code, C=QOH, D=Allocated · Upload multiple for different divisions</div>
-    </div>
-    <input type="file" id="ccFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleCCFile(this.files[0])">
-    <div id="ccUploadErr" style="font-size:12px;color:var(--danger);min-height:14px;margin-top:4px;"></div>
-
-    <!-- Loaded reports list -->
-    <div id="ccLoadedReports" style="margin-top:8px;"></div>
-    <div id="ccLoadedSummary" style="font-size:11px;color:var(--text-dim);margin-top:6px;display:none;">
-      <span id="ccLoadedTotal"></span>
-      <button onclick="resetCCUpload()" style="background:none;border:none;color:var(--danger);font-size:11px;cursor:pointer;margin-left:8px;">✕ Clear all</button>
-    </div>
-
-    <!-- Compare button -->
-    <div class="cc-step-label" style="margin-top:16px;">2 — Compare &amp; Review</div>
-    <button class="btn btn-primary" onclick="runCCCompare()" style="margin-bottom:8px;">🔍 Compare Scanned vs Bin Report</button>
-    <div id="ccDateNote" style="font-size:11px;color:var(--text-dim);margin-bottom:12px;text-align:center;"></div>
-
-    <!-- Results summary -->
-    <div id="ccCompareResults" class="hidden">
-      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
-        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
-          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);" id="ccStatTotal">0</div>
-          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Scanned</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
-          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--success);" id="ccStatMatch">0</div>
-          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Match</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
-          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--danger);" id="ccStatAdj">0</div>
-          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Adjustments</div>
-        </div>
-        <div style="background:var(--warn-dim);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
-          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--warn);" id="ccStatConflict">0</div>
-          <div style="font-size:9px;color:var(--warn);text-transform:uppercase;letter-spacing:0.8px;">Conflicts</div>
-        </div>
-        <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
-          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:#a78bfa;" id="ccStatMissing">0</div>
-          <div style="font-size:9px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.8px;">Bin Missing</div>
-        </div>
-
-      </div>
-
-      <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:6px;">⬇ Export Apprise XLSX</button>
-      <button class="btn" onclick="exportOpsConflicts()" style="background:var(--warn-dim);color:var(--warn);border:1px solid rgba(245,158,11,0.4);margin-bottom:8px;">⚠ Export Ops Conflicts Report</button>
-
-      <div class="cc-tabs">
-        <div class="cc-tab active" id="ccTabAdj" onclick="showCCView('adj')">📋 Adjustments</div>
-        <div class="cc-tab" id="ccTabConflict" onclick="showCCView('conflict')">⚠️ Ops Conflicts</div>
-        <div class="cc-tab" id="ccTabMissing" onclick="showCCView('missing')">📍 Bin Missing</div>
-
-      </div>
-      <div id="ccAdjList"></div>
-      <div id="ccConflictList" class="hidden"></div>
-      <div id="ccMissingList" class="hidden"></div>
-
-    </div>
-  </div>
-
-  <!-- ── ARCHIVE MODE ── -->
-  <div id="ccModeArchive" class="hidden">
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
-      Browse all past cycle count sessions. Filter by counter, date or division. Restore any session back to the active count to re-run the comparison.
-    </div>
-
-    <!-- Filters -->
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-      <input id="archFilterCounter" type="text" placeholder="Counter name…" class="finput" style="flex:1;min-width:120px;"
-        oninput="filterArchive()">
-      <input id="archFilterDate" type="date" class="finput" style="flex:1;min-width:130px;"
-        onchange="filterArchive()">
-      <select id="archFilterDiv" class="finput" style="flex:1;min-width:90px;" onchange="filterArchive()">
-        <option value="">All Divisions</option>
-        <option value="BC">BC</option><option value="EE">EE</option>
-        <option value="FS">FS</option><option value="GT">GT</option>
-        <option value="NH">NH</option><option value="VP">VP</option>
-      </select>
-      <button onclick="loadArchive()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text-dim);font-size:13px;cursor:pointer;white-space:nowrap;">🔄 Refresh</button>
-    </div>
-
-    <!-- Sort controls -->
-    <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;">
-      <span style="font-size:11px;color:var(--text-dim);">Sort by:</span>
-      <button onclick="setArchSort('date')" id="archSortDate" style="background:var(--accent-dim);border:1px solid var(--accent);border-radius:6px;color:var(--accent);font-size:11px;padding:4px 10px;cursor:pointer;font-weight:700;">Date ↓</button>
-      <button onclick="setArchSort('counter')" id="archSortCounter" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:11px;padding:4px 10px;cursor:pointer;">Counter</button>
-      <button onclick="setArchSort('division')" id="archSortDiv" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:11px;padding:4px 10px;cursor:pointer;">Division</button>
-    </div>
-
-    <!-- Stats bar -->
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;" id="archStats">Loading…</div>
-
-    <!-- Results list -->
-    <div id="archiveList"><div class="cc-empty">Tap Refresh to load archive.</div></div>
   </div>
 
 </div>
@@ -957,11 +829,122 @@
     <h3>🕒 Session Activity</h3>
     <div id="activityLog"><div style="font-size:12px;color:var(--text-dim);">No activity yet.</div></div>
   </div>
+
+  <!-- Cycle Count Manager & Archive — accessed from Mgr tab -->
+  <div class="msection" style="padding:0;overflow:hidden;">
+    <div style="display:flex;border-bottom:1px solid var(--border);">
+      <div class="cc-tab active" id="ccModeTabMgr" onclick="showMgrCountSection('manager')" style="flex:1;border-radius:0;border:none;border-bottom:2px solid var(--accent);">🖥 Manager Compare</div>
+      <div class="cc-tab" id="ccModeTabArchive" onclick="showMgrCountSection('archive')" style="flex:1;border-radius:0;border:none;">📂 Count Archive</div>
+    </div>
+    <div style="padding:12px 0 0;">
+
+      <!-- Manager Compare -->
+      <div id="ccModeMgr">
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
+          Upload Inventory Bin Report(s), then Compare. All counter entries from all devices are included.
+        </div>
+        <!-- Live count feed -->
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;animation:pulse 1.5s infinite;flex-shrink:0;"></span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--accent);">LIVE COUNT FEED</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin-left:auto;" id="mgrCCCount">0 entries</span>
+          </div>
+          <div id="mgrCCScanList" style="max-height:180px;overflow-y:auto;font-size:11px;">
+            <div style="color:var(--text-dim);text-align:center;padding:12px;">Waiting for count entries…</div>
+          </div>
+        </div>
+        <!-- Upload -->
+        <div class="cc-step-label">1 — Upload Inventory Bin Report(s)</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;line-height:1.5;">Upload one file per division. Multiple files merge into one combined report.</div>
+        <div class="cc-upload-box" onclick="document.getElementById('ccFileInput').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="event.preventDefault();this.classList.remove('drag');handleCCFile(event.dataTransfer.files[0])">
+          <div class="cc-upload-icon">📂</div>
+          <div class="cc-upload-text">Tap to upload a Bin Report</div>
+          <div class="cc-upload-sub">Excel or CSV · A=Bin, B=Product Code, C=QOH, D=Allocated</div>
+        </div>
+        <input type="file" id="ccFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleCCFile(this.files[0])">
+        <div id="ccUploadErr" style="font-size:12px;color:var(--danger);min-height:14px;margin-top:4px;"></div>
+        <div id="ccLoadedReports" style="margin-top:8px;"></div>
+        <div id="ccLoadedSummary" style="font-size:11px;color:var(--text-dim);margin-top:6px;display:none;">
+          <span id="ccLoadedTotal"></span>
+          <button onclick="resetCCUpload()" style="background:none;border:none;color:var(--danger);font-size:11px;cursor:pointer;margin-left:8px;">✕ Clear all</button>
+        </div>
+        <!-- Compare -->
+        <div class="cc-step-label" style="margin-top:16px;">2 — Compare &amp; Review</div>
+        <button class="btn btn-primary" onclick="runCCCompare()" style="margin-bottom:8px;">🔍 Compare Scanned vs Bin Report</button>
+        <div id="ccDateNote" style="font-size:11px;color:var(--text-dim);margin-bottom:12px;text-align:center;"></div>
+        <!-- Results -->
+        <div id="ccCompareResults" class="hidden">
+          <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+            <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+              <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);" id="ccStatTotal">0</div>
+              <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Scanned</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+              <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--success);" id="ccStatMatch">0</div>
+              <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Match</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+              <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--danger);" id="ccStatAdj">0</div>
+              <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;">Adjustments</div>
+            </div>
+            <div style="background:var(--warn-dim);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+              <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:var(--warn);" id="ccStatConflict">0</div>
+              <div style="font-size:9px;color:var(--warn);text-transform:uppercase;letter-spacing:0.8px;">Conflicts</div>
+            </div>
+            <div style="background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:8px 10px;text-align:center;flex:1;">
+              <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:#a78bfa;" id="ccStatMissing">0</div>
+              <div style="font-size:9px;color:#a78bfa;text-transform:uppercase;letter-spacing:0.8px;">Bin Missing</div>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:6px;">⬇ Export Apprise XLSX</button>
+          <button class="btn" onclick="exportOpsConflicts()" style="background:var(--warn-dim);color:var(--warn);border:1px solid rgba(245,158,11,0.4);margin-bottom:8px;">⚠ Export Ops Conflicts Report</button>
+          <div class="cc-tabs">
+            <div class="cc-tab active" id="ccTabAdj" onclick="showCCView('adj')">📋 Adjustments</div>
+            <div class="cc-tab" id="ccTabConflict" onclick="showCCView('conflict')">⚠️ Ops Conflicts</div>
+            <div class="cc-tab" id="ccTabMissing" onclick="showCCView('missing')">📍 Bin Missing</div>
+          </div>
+          <div id="ccAdjList"></div>
+          <div id="ccConflictList" class="hidden"></div>
+          <div id="ccMissingList" class="hidden"></div>
+        </div>
+      </div>
+
+      <!-- Archive -->
+      <div id="ccModeArchive" class="hidden">
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">Browse all past cycle count sessions. Restore any session to re-run the comparison.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <input id="archFilterCounter" type="text" placeholder="Counter name…" class="finput" style="flex:1;min-width:120px;" oninput="filterArchive()">
+          <input id="archFilterDate" type="date" class="finput" style="flex:1;min-width:130px;" onchange="filterArchive()">
+          <select id="archFilterDiv" class="finput" style="flex:1;min-width:90px;" onchange="filterArchive()">
+            <option value="">All Divisions</option>
+            <option value="BC">BC</option><option value="EE">EE</option>
+            <option value="FS">FS</option><option value="GT">GT</option>
+            <option value="NH">NH</option><option value="VP">VP</option>
+          </select>
+          <button onclick="loadArchive()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 14px;color:var(--text-dim);font-size:13px;cursor:pointer;white-space:nowrap;">🔄 Refresh</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;">
+          <span style="font-size:11px;color:var(--text-dim);">Sort by:</span>
+          <button onclick="setArchSort('date')" id="archSortDate" style="background:var(--accent-dim);border:1px solid var(--accent);border-radius:6px;color:var(--accent);font-size:11px;padding:4px 10px;cursor:pointer;font-weight:700;">Date ↓</button>
+          <button onclick="setArchSort('counter')" id="archSortCounter" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:11px;padding:4px 10px;cursor:pointer;">Counter</button>
+          <button onclick="setArchSort('division')" id="archSortDiv" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text-dim);font-size:11px;padding:4px 10px;cursor:pointer;">Division</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;" id="archStats">Loading…</div>
+        <div id="archiveList"><div class="cc-empty">Tap Refresh to load archive.</div></div>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 
 <!-- LOGIN OVERLAY -->
 <div class="login-overlay" id="loginOverlay">
-  <div class="login-logo">⬡ RTP SCANNER</div>
+  <div class="login-logo">⬡ IC SCANNER</div>
   <div class="login-sub">Returns Transfer Pallet · Putaway</div>
   <input class="login-field" id="loginName" type="text" inputmode="text"
     placeholder="Your name…" autocomplete="off" autocorrect="off" spellcheck="false"
@@ -1030,7 +1013,7 @@
 
 <!-- PIN OVERLAY -->
 <div class="pin-overlay" id="pinOverlay">
-  <div class="pin-logo">⬡ RTP SCANNER</div>
+  <div class="pin-logo">⬡ IC SCANNER</div>
   <div class="pin-label" id="pinOverlayLabel">Enter manager PIN to continue</div>
   <div class="pin-dots" id="pinDots">
     <div class="pin-dot" id="pd0"></div><div class="pin-dot" id="pd1"></div>
@@ -2064,40 +2047,25 @@ let ccLastExportFp   = null; // duplicate export fingerprint
 let ccLastExportFile = null;
 let ccLastExportTime = null;
 
-function setCCMode(mode){
-  if((mode==='manager'||mode==='archive') && pinIsSet() && !sessionOk()){
-    const label = mode==='archive' ? 'Count Archive' : 'Manager — Compare';
-    openPinOverlay(null,'Enter PIN to access '+label, ()=>_setCCMode(mode));
-    return;
-  }
-  if((mode==='manager'||mode==='archive') && !pinIsSet()){
-    showToast('warn','PIN Required','Set a PIN in Settings to access this area.');
-    setTimeout(()=>showPinSetupForm('Set a PIN:'),400);
-    return;
-  }
-  _setCCMode(mode);
+function showMgrCountSection(section){
+  const isMgr = section==='manager';
+  const mgr=document.getElementById('ccModeMgr');
+  const arch=document.getElementById('ccModeArchive');
+  const tabM=document.getElementById('ccModeTabMgr');
+  const tabA=document.getElementById('ccModeTabArchive');
+  if(mgr) mgr.classList.toggle('hidden',!isMgr);
+  if(arch) arch.classList.toggle('hidden',isMgr);
+  if(tabM) tabM.classList.toggle('active',isMgr);
+  if(tabA) tabA.classList.toggle('active',!isMgr);
+  if(!isMgr) loadArchive(); else startCCListener();
 }
 function toggleMgrFeed(){
-  const list = document.getElementById('mgrCCScanList');
-  const btn  = document.getElementById('mgrFeedToggleBtn');
-  if(!list||!btn) return;
-  const hidden = list.style.display==='none'||list.style.display==='';
-  list.style.display = hidden ? 'block' : 'none';
-  btn.textContent = hidden ? 'Hide' : 'Show';
+  const list=document.getElementById('mgrCCScanList');
+  if(!list) return;
+  list.style.display=(list.style.display==='none'||!list.style.display)?'block':'none';
 }
-
-function _setCCMode(mode){
-  ccMode = mode;
-  document.getElementById('ccModeScan').classList.toggle('hidden',    mode!=='scan');
-  document.getElementById('ccModeMgr').classList.toggle('hidden',     mode!=='manager');
-  document.getElementById('ccModeArchive').classList.toggle('hidden', mode!=='archive');
-  document.getElementById('ccModeTabScan').classList.toggle('active',    mode==='scan');
-  document.getElementById('ccModeTabMgr').classList.toggle('active',     mode==='manager');
-  document.getElementById('ccModeTabArchive').classList.toggle('active', mode==='archive');
-  if(mode==='scan') setTimeout(()=>{ const f=document.getElementById('ccProduct'); if(f) f.focus(); },100);
-  if(mode==='manager') startCCListener();
-  if(mode==='archive') loadArchive();
-}
+function setCCMode(mode){ /* count tab is always scan-only now */ }
+function _setCCMode(mode){ /* no-op */ }
 
 function initCountTab(){
   // If already in a session, resume it; otherwise show name gate
@@ -2170,23 +2138,44 @@ function setCCScanProdActive(active){
 }
 
 function onCCProductInput(){
+  // Just update the badge/loc silently as user types — do NOT advance to qty
+  // Advancing only happens on Enter (via onCCProductEnter called from onkeydown)
   const val = document.getElementById('ccProduct').value.trim();
   if(!val) return;
   const found = lookupProduct(val);
-  const pc  = found ? found.pc : val.toUpperCase();
-  const loc = found ? found.loc : '';
-  if(found && found.pc !== val) document.getElementById('ccProduct').value = found.pc;
-  document.getElementById('ccLoc').value = loc;
-  // Show confirm card
-  const disp = document.getElementById('ccProductDisplay');
-  const locD = document.getElementById('ccLocDisplay');
-  const conf = document.getElementById('ccProductConfirm');
-  const qty  = document.getElementById('ccQtySection');
-  if(disp) disp.textContent = pc;
-  if(locD) locD.textContent = loc ? 'Division: '+loc : 'Not in DB — check barcode';
-  if(conf) conf.classList.remove('hidden');
-  if(qty)  qty.classList.remove('hidden');
-  setTimeout(()=>{ const c=document.getElementById('ccCounted'); if(c){c.value='';c.focus();} },80);
+  if(found){
+    document.getElementById('ccLoc').value = found.loc||'';
+  } else {
+    document.getElementById('ccLoc').value = '';
+  }
+}
+
+function onCCProductEnter(){
+  // Called only when scanner sends Enter or user presses Enter — advance to qty
+  const val = document.getElementById('ccProduct').value.trim();
+  if(!val) return;
+  const found = lookupProduct(val);
+  if(found){
+    const pc = found.pc;
+    if(found.pc !== val) document.getElementById('ccProduct').value = found.pc;
+    document.getElementById('ccLoc').value = found.loc||'';
+    // Show confirm card
+    const disp = document.getElementById('ccProductDisplay');
+    const locD = document.getElementById('ccLocDisplay');
+    const conf = document.getElementById('ccProductConfirm');
+    const qty  = document.getElementById('ccQtySection');
+    if(disp) disp.textContent = pc;
+    if(locD) locD.textContent = 'Division: '+found.loc;
+    if(conf) conf.classList.remove('hidden');
+    if(qty)  qty.classList.remove('hidden');
+    setTimeout(()=>{ const c=document.getElementById('ccCounted'); if(c){c.value='';c.focus();} },80);
+  } else {
+    // Unknown barcode — warn and ask to type product code manually
+    document.getElementById('ccProduct').value = '';
+    document.getElementById('ccLoc').value = '';
+    alert('Barcode not recognized in the product database.\n\nPlease type the Product Code manually instead of scanning.');
+    document.getElementById('ccProduct').focus();
+  }
 }
 
 async function saveCCItemNow(){
