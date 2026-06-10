@@ -1108,12 +1108,65 @@ function initFirebase(){
 function setDbStatus(s,l){ document.getElementById('dbDot').className='db-dot '+(s==='ok'?'ok':'err'); document.getElementById('dbLabel').textContent=l; }
 
 // ── OFFLINE DETECTION ──
+const LOCAL_BACKUP_KEY = 'ic_scanner_cc_backup';
+
+function saveToLocalBackup(entry){
+  try{
+    const existing = JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY)||'{}');
+    existing[entry.client_id] = entry;
+    localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(existing));
+  } catch(e){ console.warn('Local backup failed:',e); }
+}
+
+function removeFromLocalBackup(docId){
+  try{
+    const existing = JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY)||'{}');
+    delete existing[docId];
+    localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(existing));
+  } catch(e){}
+}
+
+function getLocalBackupCount(){
+  try{
+    const b = JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY)||'{}');
+    return Object.keys(b).length;
+  } catch(e){ return 0; }
+}
+
+async function syncLocalBackupToFirebase(){
+  if(!dbReady||!db||!navigator.onLine) return;
+  try{
+    const backup = JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY)||'{}');
+    const entries = Object.values(backup);
+    if(!entries.length) return;
+    console.log('[Sync] Syncing',entries.length,'locally backed-up entries to Firebase...');
+    for(const entry of entries){
+      const scanTime = new Date(entry.scanned_at_iso||Date.now());
+      await db.collection('rtp_cycle_count').doc(entry.client_id).set({
+        ...entry,
+        scanned_at: firebase.firestore.Timestamp.fromDate(scanTime)
+      });
+      removeFromLocalBackup(entry.client_id);
+    }
+    showToast('ok','Synced', entries.length+' offline count(s) synced to Firebase.');
+    console.log('[Sync] Complete.');
+  } catch(e){ console.warn('[Sync] Partial sync:',e.message); }
+}
+
 function updateOfflineBanners(offline){
   ['ccOfflineBanner','scanOfflineBanner'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.classList.toggle('show', offline);
   });
   setDbStatus(offline?'err':'ok', offline?'Offline':'Firebase');
+  if(!offline){
+    // Back online — sync any locally backed-up entries
+    const n = getLocalBackupCount();
+    if(n>0){
+      showToast('ok','Signal Restored', 'Syncing '+n+' saved count(s)…');
+      setTimeout(syncLocalBackupToFirebase, 1500);
+    }
+  }
 }
 window.addEventListener('online',  ()=>updateOfflineBanners(false));
 window.addEventListener('offline', ()=>updateOfflineBanners(true));
@@ -1661,26 +1714,24 @@ function makeItem(pc,qty,bin,loc,isNew,name){
 }
 
 async function commitItem(item){
-  // Write to shared Firestore queue — listener will update all users' UI automatically
   if(dbReady&&db){
-    try{
-      // Use client-generated doc ID to prevent duplicates on offline replay
-      const scanTime = item.time || new Date();
-      const docId = makeScanDocId(item.name||'', item.pc, item.bin);
-      await db.collection('rtp_queue').doc(docId).set({
-        pc: item.pc, loc: item.loc, location: item.loc,
-        qty: item.qty, quantity: item.qty,
-        bin: item.bin, isNew: item.isNew, is_new_product: item.isNew,
-        name: item.name, scanned_by: item.name,
-        scanned_at: firebase.firestore.Timestamp.fromDate(scanTime), // actual scan time
-        client_id: docId
-      });
-      fetchQueue();
-    } catch(e){
-      // Offline — Firebase persistence queues write; show item locally so UI updates
-      console.warn('[Queue] Write queued offline:', e.message);
-      queue.push(item); updateQueueUI(); updateManagerUI();
-    }
+    const scanTime = item.time || new Date();
+    const docId = makeScanDocId(item.name||'', item.pc, item.bin);
+    const data = {
+      pc: item.pc, loc: item.loc, location: item.loc,
+      qty: item.qty, quantity: item.qty,
+      bin: item.bin, isNew: item.isNew, is_new_product: item.isNew,
+      name: item.name, scanned_by: item.name,
+      scanned_at: firebase.firestore.Timestamp.fromDate(scanTime),
+      client_id: docId
+    };
+    // Fire and forget — don't await. Firebase persistence handles offline delivery.
+    // If offline, Firestore queues it and sends on reconnect automatically.
+    db.collection('rtp_queue').doc(docId).set(data)
+      .then(()=>fetchQueue())
+      .catch(e=>console.warn('[Queue] Queued offline:',e.message));
+    // Show in local UI immediately so counter sees it
+    if(!navigator.onLine){ queue.push(item); updateQueueUI(); updateManagerUI(); }
   } else {
     queue.push(item); updateQueueUI(); updateManagerUI();
   }
@@ -2207,25 +2258,30 @@ async function zeroCCBin(){
   }
 
   if(dbReady && db){
-    try{
-      const zeroTime  = new Date();
-      const zeroDocId = makeScanDocId(ccCounterName, '__ZERO_BIN__', ccActiveBin);
-      await db.collection('rtp_cycle_count').doc(zeroDocId).set({
-        pc: '__ZERO_BIN__',
-        bin: ccActiveBin,
-        loc: '', location: '',
-        counted: 0,
-        zero_bin: true,
-        scanned_by: ccCounterName,
-        scanned_at: firebase.firestore.Timestamp.fromDate(zeroTime),
-        client_id: zeroDocId
-      });
-      const conflictCount = reportProducts.filter(r => r.alloc > 0).length;
-      const msg = ccActiveBin + ' zeroed — ' + reportProducts.length + ' product(s)' +
-        (conflictCount ? ' · ⚠ ' + conflictCount + ' allocation conflict(s) for Ops' : '');
-      showToast('ok','Bin Marked Empty', msg);
-      changeCCBin();
-    } catch(e){ console.error(e); showToast('err','DB Error', e.message); }
+    const zeroTime  = new Date();
+    const zeroDocId = makeScanDocId(ccCounterName, '__ZERO_BIN__', ccActiveBin);
+    const zeroEntry = {
+      pc:'__ZERO_BIN__', bin:ccActiveBin, loc:'', location:'',
+      counted:0, zero_bin:true,
+      scanned_by:ccCounterName,
+      scanned_at_iso: zeroTime.toISOString(),
+      client_id: zeroDocId
+    };
+    // Save locally first
+    saveToLocalBackup(zeroEntry);
+    // Fire and forget — don't await
+    db.collection('rtp_cycle_count').doc(zeroDocId).set({
+      ...zeroEntry,
+      scanned_at: firebase.firestore.Timestamp.fromDate(zeroTime)
+    }).then(()=>removeFromLocalBackup(zeroDocId))
+      .catch(e=>console.warn('[CC Zero] Queued offline:',zeroDocId));
+
+    const conflictCount = reportProducts.filter(r => r.alloc > 0).length;
+    const msg = ccActiveBin + ' zeroed — ' + reportProducts.length + ' product(s)' +
+      (conflictCount ? ' · ⚠ ' + conflictCount + ' allocation conflict(s) for Ops' : '') +
+      (navigator.onLine ? '' : ' · saved locally');
+    showToast('ok','Bin Marked Empty', msg);
+    changeCCBin();
   }
 }
 
@@ -2298,36 +2354,43 @@ async function saveCCItemNow(){
   const found = lookupProduct(rawPc);
   const pc    = found ? found.pc : rawPc.toUpperCase();
   const loc   = found ? found.loc : document.getElementById('ccLoc').value || '';
-  // loc may be empty for manually typed codes not in DB — allow it, flag as unknown
   if(!loc && found===null){
-    // Product not in DB but user typed it manually — confirm before saving
     if(!confirm('Product code "'+pc+'" is not in the database.\nDivision unknown.\nSave anyway?')) return;
   }
 
-  // Capture exact scan time client-side — serverTimestamp() only stamps arrival, not scan time
   const scanTime = new Date();
-  // Dedup doc ID — same counter + product + bin within same minute = same doc (idempotent re-send)
-  const docId = makeScanDocId(ccCounterName, pc, ccActiveBin);
+  const docId    = makeScanDocId(ccCounterName, pc, ccActiveBin);
 
-  if(dbReady&&db){
-    try{
-      // set() with docId instead of add() — duplicate taps offline = same doc, no duplicate records
-      await db.collection('rtp_cycle_count').doc(docId).set({
-        pc, bin:ccActiveBin, loc, location:loc, counted,
-        scanned_by:ccCounterName,
-        zero_bin: false,
-        scanned_at: firebase.firestore.Timestamp.fromDate(scanTime), // actual scan time
-        client_id: docId
-      });
-      showToast('ok','Recorded','['+loc+'] '+pc+' ×'+counted+' @ '+ccActiveBin);
-    } catch(e){
-      // Firebase offline persistence queues this write — will auto-send on reconnect
-      console.warn('[CC] Write queued offline:', e.message);
-      showToast('ok','Saved Locally','Will sync when signal returns.');
-    }
+  const entry = {
+    pc, bin:ccActiveBin, loc, location:loc, counted,
+    scanned_by: ccCounterName,
+    zero_bin:   false,
+    scanned_at_iso: scanTime.toISOString(), // store as ISO for local backup
+    client_id:  docId
+  };
+
+  // ── 1. Save to localStorage immediately — survives page close, no network needed ──
+  saveToLocalBackup(entry);
+
+  // ── 2. Fire Firebase write without awaiting — Firebase persistence queues it ──
+  //    The UI never hangs waiting for network. Firebase delivers when signal returns.
+  if(dbReady && db){
+    db.collection('rtp_cycle_count').doc(docId).set({
+      ...entry,
+      scanned_at: firebase.firestore.Timestamp.fromDate(scanTime)
+    }).then(()=>{
+      // Remove from local backup once confirmed saved to server
+      removeFromLocalBackup(docId);
+    }).catch(e=>{
+      // Offline — Firebase queues it internally. Local backup is the safety net.
+      console.warn('[CC] Queued offline, local backup retained:', docId);
+    });
   }
+
+  showToast('ok', navigator.onLine ? '✓ Saved' : '📶 Saved Locally',
+    '['+loc+'] '+pc+' ×'+counted+' @ '+ccActiveBin+(navigator.onLine ? '' : ' — will sync'));
+
   clearCCForm();
-  // Small delay so the toast shows before the prompt
   setTimeout(()=>askMoreProducts(), 400);
 }
 
