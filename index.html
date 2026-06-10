@@ -2138,44 +2138,54 @@ function setCCScanProdActive(active){
 }
 
 function onCCProductInput(){
-  // Just update the badge/loc silently as user types — do NOT advance to qty
-  // Advancing only happens on Enter (via onCCProductEnter called from onkeydown)
+  // Silent background lookup only — never auto-advance while typing
   const val = document.getElementById('ccProduct').value.trim();
   if(!val) return;
   const found = lookupProduct(val);
-  if(found){
-    document.getElementById('ccLoc').value = found.loc||'';
-  } else {
-    document.getElementById('ccLoc').value = '';
-  }
+  document.getElementById('ccLoc').value = found ? found.loc||'' : '';
 }
 
 function onCCProductEnter(){
-  // Called only when scanner sends Enter or user presses Enter — advance to qty
   const val = document.getElementById('ccProduct').value.trim();
   if(!val) return;
+
+  // Detect if this looks like a barcode (long, all numeric) vs a product code (short/alphanumeric)
+  const isLikelyBarcode = /^\d{8,}$/.test(val); // 8+ digits with no letters = barcode
   const found = lookupProduct(val);
+
   if(found){
-    const pc = found.pc;
+    // Known product — advance to qty
     if(found.pc !== val) document.getElementById('ccProduct').value = found.pc;
     document.getElementById('ccLoc').value = found.loc||'';
-    // Show confirm card
-    const disp = document.getElementById('ccProductDisplay');
-    const locD = document.getElementById('ccLocDisplay');
-    const conf = document.getElementById('ccProductConfirm');
-    const qty  = document.getElementById('ccQtySection');
-    if(disp) disp.textContent = pc;
-    if(locD) locD.textContent = 'Division: '+found.loc;
-    if(conf) conf.classList.remove('hidden');
-    if(qty)  qty.classList.remove('hidden');
-    setTimeout(()=>{ const c=document.getElementById('ccCounted'); if(c){c.value='';c.focus();} },80);
-  } else {
-    // Unknown barcode — warn and ask to type product code manually
+    showCCProductConfirm(found.pc, found.loc);
+  } else if(isLikelyBarcode){
+    // Looks like a barcode but not in DB — clear and ask for manual product code entry
     document.getElementById('ccProduct').value = '';
     document.getElementById('ccLoc').value = '';
-    alert('Barcode not recognized in the product database.\n\nPlease type the Product Code manually instead of scanning.');
+    alert('Barcode not recognized.\n\nPlease TYPE the Product Code instead (e.g. DI1201).\nProduct codes are shorter and usually contain letters.');
     document.getElementById('ccProduct').focus();
+  } else {
+    // Short/alphanumeric — treat as manually typed product code even if not in DB
+    // Allow it through with a warning shown inline, not a blocking alert
+    const pc = val.toUpperCase();
+    document.getElementById('ccProduct').value = pc;
+    document.getElementById('ccLoc').value = '';
+    showCCProductConfirm(pc, null); // null loc = unknown division, counter can still save
   }
+}
+
+function showCCProductConfirm(pc, loc){
+  const disp = document.getElementById('ccProductDisplay');
+  const locD = document.getElementById('ccLocDisplay');
+  const conf = document.getElementById('ccProductConfirm');
+  const qty  = document.getElementById('ccQtySection');
+  if(disp) disp.textContent = pc;
+  if(locD) locD.textContent = loc ? 'Division: '+loc : '⚠ Not in DB — verify product code';
+  if(locD) locD.style.color = loc ? '' : 'var(--warn)';
+  if(conf) conf.style.borderColor = loc ? 'rgba(0,212,170,0.25)' : 'rgba(245,158,11,0.4)';
+  if(conf) conf.classList.remove('hidden');
+  if(qty)  qty.classList.remove('hidden');
+  setTimeout(()=>{ const c=document.getElementById('ccCounted'); if(c){c.value='';c.focus();} },80);
 }
 
 async function saveCCItemNow(){
@@ -2187,8 +2197,12 @@ async function saveCCItemNow(){
   if(isNaN(counted)||counted<0){ showToast('err','Invalid Qty','Enter 0 or more.'); return; }
   const found = lookupProduct(rawPc);
   const pc    = found ? found.pc : rawPc.toUpperCase();
-  const loc   = found ? found.loc : document.getElementById('ccLoc').value;
-  if(!loc){ showToast('err','Unknown Division','Product not in DB — select location manually.'); return; }
+  const loc   = found ? found.loc : document.getElementById('ccLoc').value || '';
+  // loc may be empty for manually typed codes not in DB — allow it, flag as unknown
+  if(!loc && found===null){
+    // Product not in DB but user typed it manually — confirm before saving
+    if(!confirm('Product code "'+pc+'" is not in the database.\nDivision unknown.\nSave anyway?')) return;
+  }
 
   // Capture exact scan time client-side — serverTimestamp() only stamps arrival, not scan time
   const scanTime = new Date();
