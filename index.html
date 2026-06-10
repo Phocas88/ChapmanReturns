@@ -337,6 +337,16 @@
   .staged-del:hover{color:var(--danger);}
   .staged-empty{text-align:center;padding:16px;font-size:12px;color:var(--text-muted);border:1px dashed var(--border);border-radius:8px;margin-bottom:10px;}
 
+  /* ── MORE PRODUCTS MODAL ── */
+  .mp-modal-scrim{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:500;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .mp-modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 24px;width:100%;max-width:340px;text-align:center;}
+  .mp-modal-icon{font-size:38px;margin-bottom:12px;}
+  .mp-modal-title{font-size:19px;font-weight:700;color:var(--text);margin-bottom:6px;}
+  .mp-modal-sub{font-size:14px;color:var(--text-dim);margin-bottom:24px;line-height:1.5;}
+  .mp-modal-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .mp-btn-yes{padding:16px;background:#a78bfa;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;}
+  .mp-btn-no{padding:16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:16px;font-weight:600;color:var(--text-dim);cursor:pointer;}
+
   /* ── KEYBOARD WIDGET ── */
   .kbd-overlay{display:none;position:fixed;inset:0;z-index:350;flex-direction:column;justify-content:flex-end;}
   .kbd-overlay.active{display:flex;}
@@ -543,6 +553,19 @@
     <div class="cam-hint">Center barcode within the frame</div>
   </div>
   <div class="cam-status" id="camStatus">Initializing camera…</div>
+</div>
+
+<!-- ── MORE PRODUCTS MODAL ── -->
+<div class="mp-modal-scrim hidden" id="moreProductsModal">
+  <div class="mp-modal">
+    <div class="mp-modal-icon">📦</div>
+    <div class="mp-modal-title">More products in this bin?</div>
+    <div class="mp-modal-sub" id="moreProductsBin">Are there more items to count in this bin?</div>
+    <div class="mp-modal-btns">
+      <button class="mp-btn-no" onclick="moreProductsNo()">No — Next Bin</button>
+      <button class="mp-btn-yes" onclick="moreProductsYes()">Yes — Keep Scanning</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── KEYBOARD WIDGET ── -->
@@ -2110,9 +2133,35 @@ function endCCSession(){
   document.getElementById('ccStep1').classList.remove('hidden');
 }
 
+function isValidBin(val){
+  // Valid bin formats:
+  // ##-##-## or ##-##-#  (standard shelving)
+  // Room..., Bulk..., Wall...  (named locations)
+  // P... (pushback)
+  // Also allow single words/codes that aren't obviously product barcodes (8+ digits)
+  const v = val.trim().toUpperCase();
+  if(!v) return false;
+  if(/^\d{8,}$/.test(v)) return false; // looks like a product barcode, not a bin
+  if(/^\d{2}-\d{2}-\d{1,2}$/.test(v)) return true; // ##-##-## or ##-##-#
+  if(/^(ROOM|BULK|WALL|FLOOR)/i.test(v)) return true;
+  if(/^P\d/i.test(v)) return true; // pushback: P01, P2A, etc.
+  if(/^[A-Z]/i.test(v) && v.length >= 2 && v.length <= 20) return true; // named location
+  return false;
+}
+
 function lockCCBin(){
-  const bin = document.getElementById('ccBin').value.trim().toUpperCase();
-  if(!bin){ showToast('err','No Bin','Scan or enter a bin location.'); return; }
+  const raw = document.getElementById('ccBin').value.trim();
+  const bin = raw.toUpperCase();
+  if(!bin){ showToast('err','No Bin','Scan or type a bin location.'); return; }
+
+  if(!isValidBin(bin)){
+    // Looks like a product barcode was scanned into the bin field
+    document.getElementById('ccBin').value = '';
+    document.getElementById('ccBin').focus();
+    showToast('err','Invalid Bin','That looks like a product barcode, not a bin location. Scan the bin label (e.g. 03-25-04).');
+    return;
+  }
+
   ccActiveBin = bin;
   ccStaged = [];
   document.getElementById('ccBinLockVal').textContent = bin;
@@ -2122,13 +2171,62 @@ function lockCCBin(){
 }
 
 function changeCCBin(){
-  ccActiveBin=''; ccStaged=[];
-  document.getElementById('ccBin').value='';
+  ccActiveBin = ''; ccStaged = [];
+  document.getElementById('ccBin').value = '';
   document.getElementById('ccStep2').classList.add('hidden');
   document.getElementById('ccStep1').classList.remove('hidden');
-  const btnText = document.getElementById('ccScanBinText');
-  if(btnText) btnText.textContent='Scan Bin Barcode';
-  renderCCStagedList();
+  // Clear the bin input and focus it for next scan
+  setTimeout(()=>{ const b=document.getElementById('ccBin'); if(b){b.value='';b.focus();} },100);
+}
+
+async function zeroCCBin(){
+  if(!ccCounterName){ showToast('err','No Session','Start a count session first.'); return; }
+  if(!ccActiveBin){ showToast('err','No Bin','Lock a bin first.'); return; }
+
+  const binUpper = ccActiveBin.toUpperCase();
+
+  // Find all products in this bin from the uploaded bin report
+  const reportProducts = Object.values(ccBinReport).filter(r => r.bin.toUpperCase() === binUpper);
+
+  if(!reportProducts.length){
+    // Bin not in report — just save the zero flag, manager will note it
+    if(!confirm('Bin ' + ccActiveBin + ' is not in the uploaded bin report.\nMark as empty anyway? (No adjustment will be generated since there is no system qty to subtract.)')){
+      return;
+    }
+  } else {
+    // Show what will be zeroed and flag any allocation conflicts
+    const conflicts = reportProducts.filter(r => r.alloc > 0);
+    let msg = 'Mark bin ' + ccActiveBin + ' as EMPTY?\n\nProducts that will be zeroed:\n';
+    reportProducts.forEach(r => {
+      msg += '\n  ' + r.pc + '  QOH: ' + r.qoh + (r.alloc > 0 ? '  ⚠ ALLOCATED: ' + r.alloc : '');
+    });
+    if(conflicts.length){
+      msg += '\n\n⚠ WARNING: ' + conflicts.length + ' item(s) have open allocations.\nApprise will only adjust down to the allocated qty.\nOps must cancel the orders before the full adjustment can be made.';
+    }
+    if(!confirm(msg)) return;
+  }
+
+  if(dbReady && db){
+    try{
+      const zeroTime  = new Date();
+      const zeroDocId = makeScanDocId(ccCounterName, '__ZERO_BIN__', ccActiveBin);
+      await db.collection('rtp_cycle_count').doc(zeroDocId).set({
+        pc: '__ZERO_BIN__',
+        bin: ccActiveBin,
+        loc: '', location: '',
+        counted: 0,
+        zero_bin: true,
+        scanned_by: ccCounterName,
+        scanned_at: firebase.firestore.Timestamp.fromDate(zeroTime),
+        client_id: zeroDocId
+      });
+      const conflictCount = reportProducts.filter(r => r.alloc > 0).length;
+      const msg = ccActiveBin + ' zeroed — ' + reportProducts.length + ' product(s)' +
+        (conflictCount ? ' · ⚠ ' + conflictCount + ' allocation conflict(s) for Ops' : '');
+      showToast('ok','Bin Marked Empty', msg);
+      changeCCBin();
+    } catch(e){ console.error(e); showToast('err','DB Error', e.message); }
+  }
 }
 
 function setCCScanProdActive(active){
@@ -2229,6 +2327,8 @@ async function saveCCItemNow(){
     }
   }
   clearCCForm();
+  // Small delay so the toast shows before the prompt
+  setTimeout(()=>askMoreProducts(), 400);
 }
 
 // stageCCItem and commitAllCCItems now delegate to saveCCItemNow
@@ -2237,32 +2337,24 @@ function addCountEntry(){ saveCCItemNow(); }
 async function commitAllCCItems(){ /* deprecated */ }
 function renderCCStagedList(){ /* no-op — staging removed */ }
 
-// Zero bin: saves a special zero_bin marker so the manager's compare
-// knows to subtract ALL products showing in the bin report for this bin
-async function zeroCCBin(){
-  if(!ccCounterName){ showToast('err','No Session','Start a count session first.'); return; }
-  if(!ccActiveBin){ showToast('err','No Bin','Lock a bin first.'); return; }
-  if(!confirm('Mark bin '+ccActiveBin+' as EMPTY (0 qty)? Manager will subtract all system quantities for this bin when comparing.')){return;}
-  if(dbReady&&db){
-    try{
-      const zeroTime = new Date();
-      const zeroDocId = makeScanDocId(ccCounterName, '__ZERO_BIN__', ccActiveBin);
-      await db.collection('rtp_cycle_count').doc(zeroDocId).set({
-        pc:'__ZERO_BIN__',
-        bin:ccActiveBin,
-        loc:'', location:'',
-        counted:0,
-        zero_bin:true,
-        scanned_by:ccCounterName,
-        scanned_at: firebase.firestore.Timestamp.fromDate(zeroTime),
-        client_id: zeroDocId
-      });
-      showToast('ok','Bin Marked Empty',ccActiveBin+' — manager will zero all products in this bin.');
-      // Clear and stay on same bin so counter can move to next bin
-      changeCCBin();
-    } catch(e){ console.error(e); showToast('err','DB Error',e.message); }
-  }
+// ── More Products Modal ──
+function askMoreProducts(){
+  const modal = document.getElementById('moreProductsModal');
+  const sub   = document.getElementById('moreProductsBin');
+  if(sub) sub.textContent = 'Bin: ' + ccActiveBin + ' — are there more items to count here?';
+  if(modal) modal.classList.remove('hidden');
 }
+function moreProductsYes(){
+  document.getElementById('moreProductsModal').classList.add('hidden');
+  // Stay on step 2, focus product field for next scan
+  clearCCForm();
+}
+function moreProductsNo(){
+  document.getElementById('moreProductsModal').classList.add('hidden');
+  // Done with this bin — go back to bin scan screen
+  changeCCBin();
+}
+
 
 // stageCCItem = alias kept for keyboard widget compatibility
 
