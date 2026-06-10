@@ -902,7 +902,7 @@
           ondrop="event.preventDefault();this.classList.remove('drag');handleCCFile(event.dataTransfer.files[0])">
           <div class="cc-upload-icon">📂</div>
           <div class="cc-upload-text">Tap to upload a Bin Report</div>
-          <div class="cc-upload-sub">Excel or CSV · A=Bin, B=Product Code, C=QOH, D=Allocated</div>
+          <div class="cc-upload-sub">Excel or CSV · Bin Name, Product Code, QOH, Allocated, U/M · Multiple UOMs merged to eaches</div>
         </div>
         <input type="file" id="ccFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleCCFile(this.files[0])">
         <div id="ccUploadErr" style="font-size:12px;color:var(--danger);min-height:14px;margin-top:4px;"></div>
@@ -940,7 +940,8 @@
             </div>
           </div>
           <button class="btn btn-primary" onclick="exportCycleCount()" style="margin-bottom:6px;">⬇ Export Apprise XLSX</button>
-          <button class="btn" onclick="exportOpsConflicts()" style="background:var(--warn-dim);color:var(--warn);border:1px solid rgba(245,158,11,0.4);margin-bottom:8px;">⚠ Export Ops Conflicts Report</button>
+          <button class="btn" onclick="exportOpsConflicts()" style="background:var(--warn-dim);color:var(--warn);border:1px solid rgba(245,158,11,0.4);margin-bottom:6px;">⚠ Export Ops Conflicts Report</button>
+          <button class="btn" onclick="generateAdjSummaryReport()" style="background:rgba(0,212,170,0.12);color:var(--accent);border:1px solid rgba(0,212,170,0.3);margin-bottom:8px;">📊 Adjustments Summary Report</button>
           <div class="cc-tabs">
             <div class="cc-tab active" id="ccTabAdj" onclick="showCCView('adj')">📋 Adjustments</div>
             <div class="cc-tab" id="ccTabConflict" onclick="showCCView('conflict')">⚠️ Ops Conflicts</div>
@@ -2594,50 +2595,87 @@ let ccUploadedReports = []; // [{name, count, division}]
 function parseCCBinReport(rows, filename){
   const err = document.getElementById('ccUploadErr');
   let count=0, skipped=0;
-  const start = (rows[0]&&isNaN(parseFloat(rows[0][2]))) ? 1 : 0;
+  const start = (rows[0] && isNaN(parseFloat(rows[0][2]))) ? 1 : 0;
   const newKeys = [];
-  for(let i=start;i<rows.length;i++){
-    const r=rows[i];
-    if(!r||r.length<3) continue;
-    const bin=String(r[0]||'').trim();
-    const pc =String(r[1]||'').trim();
-    const qoh  =parseFloat(r[2])||0;
-    const alloc=parseFloat(r[3])||0;
-    if(!bin||!pc){skipped++;continue;}
-    const key=pc.toUpperCase()+'|'+bin.toUpperCase();
-    ccBinReport[key]={pc,bin,qoh,alloc,available:Math.max(0,qoh-alloc)};
-    newKeys.push(key);
+
+  // Parse UOM string → multiplier in eaches
+  // "each" → 1, "Case4" → 4, "Case12" → 12, etc.
+  function uomToEaches(uom){
+    if(!uom) return 1;
+    const s = String(uom).trim().toLowerCase();
+    if(s === 'each' || s === 'ea' || s === '') return 1;
+    const m = s.match(/^case(\d+)$/);
+    if(m) return parseInt(m[1]) || 1;
+    return 1; // fallback — treat as each
+  }
+
+  for(let i=start; i<rows.length; i++){
+    const r = rows[i];
+    if(!r || r.length < 3) continue;
+    const bin  = String(r[0]||'').trim();
+    const pc   = String(r[1]||'').trim();
+    const qoh  = parseFloat(r[2]) || 0;
+    const alloc= parseFloat(r[3]) || 0;
+    const uom  = String(r[4]||'').trim() || 'each';
+    if(!bin || !pc){ skipped++; continue; }
+
+    const mult = uomToEaches(uom);
+    const qohEaches   = qoh   * mult;
+    const allocEaches = alloc * mult;
+
+    const key = pc.toUpperCase()+'|'+bin.toUpperCase();
+
+    if(ccBinReport[key]){
+      // Same PC+Bin already exists — MERGE (add eaches from this UOM row)
+      ccBinReport[key].qoh   += qohEaches;
+      ccBinReport[key].alloc += allocEaches;
+      ccBinReport[key].available = Math.max(0, ccBinReport[key].qoh - ccBinReport[key].alloc);
+      // Record the UOM breakdown for the summary report
+      ccBinReport[key].uomRows.push({uom, qoh, mult, qohEaches});
+    } else {
+      ccBinReport[key] = {
+        pc, bin,
+        qoh:   qohEaches,
+        alloc: allocEaches,
+        available: Math.max(0, qohEaches - allocEaches),
+        uomRows: [{uom, qoh, mult, qohEaches}]  // keep original rows for reference
+      };
+      newKeys.push(key);
+    }
     count++;
   }
-  if(!count){ err.textContent='No valid rows found. Check columns: A=Bin, B=Product Code, C=QOH, D=Allocated.'; return; }
+
+  if(!count){ err.textContent='No valid rows found. Expected columns: Bin Name, Product Code, Qty On Hand, Qty Allocated, U/M'; return; }
   err.textContent='';
-  ccBinLoaded=true;
+  ccBinLoaded = true;
 
   // Auto-detect division from product DB
-  const divSet=new Set();
+  const divSet = new Set();
   for(const key of newKeys){
-    const pc=key.split('|')[0];
-    const found=lookupProduct(pc);
-    if(found&&found.loc) divSet.add(found.loc);
+    const pc = key.split('|')[0];
+    const found = lookupProduct(pc);
+    if(found && found.loc) divSet.add(found.loc);
   }
-  const divLabel=divSet.size ? [...divSet].join('/') : 'Unknown';
-  ccUploadedReports.push({name:filename||'Bin Report', count, division:divLabel});
+  const divLabel = divSet.size ? [...divSet].join('/') : 'Unknown';
+  // Count unique PC+Bin combos (not raw rows)
+  const uniqueCombos = newKeys.length;
+  ccUploadedReports.push({name: filename||'Bin Report', count, uniqueCombos, division: divLabel});
   renderCCLoadedReports();
 }
 
 function renderCCLoadedReports(){
   const total = Object.keys(ccBinReport).length;
-  const el = document.getElementById('ccLoadedReports');
+  const el  = document.getElementById('ccLoadedReports');
   const sum = document.getElementById('ccLoadedSummary');
   document.getElementById('ccLoadedTotal').textContent =
-    `${total} total product-bin records across ${ccUploadedReports.length} file(s)`;
+    `${total} unique product-bin records (eaches) across ${ccUploadedReports.length} file(s)`;
   sum.style.display = '';
   el.innerHTML = ccUploadedReports.map((r,i)=>`
     <div class="cc-loaded-bar" style="margin-top:6px;">
       <div class="cc-lb-icon">✅</div>
       <div style="flex:1;">
         <div class="cc-lb-text">${r.name}</div>
-        <div class="cc-lb-sub">${r.count} records · Division: ${r.division}</div>
+        <div class="cc-lb-sub">${r.count} rows · ${r.uniqueCombos} unique combos · Division: ${r.division} · All UOMs → eaches</div>
       </div>
     </div>`).join('');
 }
@@ -3274,7 +3312,181 @@ async function testFirebase(){
   }
 }
 
-// ══════════════════════════════════════════════════════════════
+// ── ADJUSTMENTS SUMMARY REPORT ──
+function generateAdjSummaryReport(){
+  if(!ccCompared.length && !ccConflicts.length && !ccMissing.length){
+    showToast('err','No Results','Run Compare first.'); return;
+  }
+  const adjRows      = ccCompared.filter(e=>e.delta!==0);
+  const matchRows    = ccCompared.filter(e=>e.delta===0);
+  const conflictRows = ccConflicts;
+  const missingRows  = ccMissing;
+  const allAdjusted  = [...adjRows, ...conflictRows, ...missingRows];
+  const fmtN = n => (n>0?'+':'')+Number(n).toLocaleString();
+  const now  = new Date();
+  const ts   = now.toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+
+  // UOM breakdown helper — show what was in the bin report for this entry
+  const uomDetail = e => {
+    const key = (e.pc||'').toUpperCase()+'|'+(e.bin||'').toUpperCase();
+    const rec = ccBinReport[key];
+    if(!rec || !rec.uomRows || rec.uomRows.length<2) return '';
+    return rec.uomRows.map(u=>`${u.qoh} × ${u.uom} (${u.qohEaches} ea)`).join(' + ');
+  };
+
+  const rowColor = e => e.isConflict  ? '#fef3c7'
+                      : e.isMissing   ? '#ede9fe'
+                      : e.delta < 0   ? '#fef2f2'
+                      : e.delta > 0   ? '#f0fdf4'
+                      : '#fff';
+  const deltaColor = e => e.delta < 0 ? '#dc2626' : e.delta > 0 ? '#16a34a' : '#888';
+
+  const reportHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cycle Count — Adjustments Summary</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;color:#1a1a2e;background:#fff;padding:20px;}
+  h1{font-size:20px;font-weight:700;margin-bottom:4px;}
+  .meta{font-size:11px;color:#666;margin-bottom:20px;}
+  h2{font-size:13px;font-weight:700;margin:20px 0 8px;padding-bottom:4px;border-bottom:2px solid;}
+  h2.adj{border-color:#dc2626;color:#dc2626;}
+  h2.match{border-color:#16a34a;color:#16a34a;}
+  h2.conflict{border-color:#d97706;color:#d97706;}
+  h2.missing{border-color:#6d28d9;color:#6d28d9;}
+  .summary-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px;}
+  .sbox{border-radius:8px;padding:10px;text-align:center;}
+  .sbox.adj{background:#fef2f2;border:1px solid #fca5a5;}
+  .sbox.match{background:#f0fdf4;border:1px solid #86efac;}
+  .sbox.conflict{background:#fffbeb;border:1px solid #fcd34d;}
+  .sbox.missing{background:#ede9fe;border:1px solid #c4b5fd;}
+  .sbox.total{background:#f8f7ff;border:1px solid #c4b5fd;}
+  .sval{font-size:22px;font-weight:700;}
+  .slbl{font-size:9px;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;color:#555;}
+  table{width:100%;border-collapse:collapse;margin-bottom:8px;}
+  th{background:#f0ecff;color:#4c1d95;padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.4px;font-weight:700;}
+  td{padding:5px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top;}
+  .delta{font-weight:700;font-size:12px;}
+  .uom-detail{font-size:9px;color:#888;margin-top:2px;}
+  .note-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700;}
+  .badge-conflict{background:#fef3c7;color:#92400e;}
+  .badge-missing{background:#ede9fe;color:#4c1d95;}
+  .badge-zero{background:#fee2e2;color:#991b1b;}
+  @media print{
+    body{padding:12px;font-size:10px;}
+    .no-print{display:none!important;}
+    h2{page-break-after:avoid;}
+    table{page-break-inside:auto;}
+    tr{page-break-inside:avoid;}
+    .page-break{page-break-before:always;}
+  }
+  .print-btn{background:#6d28d9;color:#fff;border:none;padding:9px 18px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:16px;}
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">🖨 Print / Save PDF</button>
+<h1>Cycle Count — Adjustments Summary</h1>
+<div class="meta">Generated: ${ts} &nbsp;·&nbsp; All quantities in eaches (UOM converted)</div>
+
+<div class="summary-grid">
+  <div class="sbox total"><div class="sval">${allAdjusted.length}</div><div class="slbl">Total Adjustments</div></div>
+  <div class="sbox adj"><div class="sval" style="color:#dc2626">${adjRows.length}</div><div class="slbl">Clean Adj</div></div>
+  <div class="sbox match"><div class="sval" style="color:#16a34a">${matchRows.length}</div><div class="slbl">Exact Match</div></div>
+  <div class="sbox conflict"><div class="sval" style="color:#d97706">${conflictRows.length}</div><div class="slbl">Alloc Conflict</div></div>
+  <div class="sbox missing"><div class="sval" style="color:#6d28d9">${missingRows.length}</div><div class="slbl">Bin Missing</div></div>
+</div>
+
+${adjRows.length ? `
+<h2 class="adj">📋 Adjustments (${adjRows.length}) — included in Apprise export</h2>
+<table>
+  <thead><tr><th>Product</th><th>Bin</th><th>Div</th><th>System QOH (ea)</th><th>UOM Breakdown</th><th>Counter Counted</th><th>Delta</th><th>Apprise Qty</th><th>Counter</th></tr></thead>
+  <tbody>
+    ${adjRows.map(e=>`<tr style="background:${rowColor(e)}">
+      <td style="font-weight:700">${e.pc}</td>
+      <td style="font-family:monospace">${e.bin}</td>
+      <td>${e.loc||'?'}</td>
+      <td>${(e.qoh||0).toLocaleString()}</td>
+      <td><div class="uom-detail">${uomDetail(e)||'single UOM'}</div></td>
+      <td>${(e.counted||0).toLocaleString()}</td>
+      <td class="delta" style="color:${deltaColor(e)}">${fmtN(e.delta)}</td>
+      <td style="font-weight:700;color:${deltaColor(e)}">${fmtN(e.exportDelta??e.delta)}</td>
+      <td style="font-size:10px;color:#888">${e.scanned_by||''}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>` : ''}
+
+${matchRows.length ? `
+<div class="page-break"></div>
+<h2 class="match">✅ Exact Matches (${matchRows.length}) — NOT in Apprise export</h2>
+<table>
+  <thead><tr><th>Product</th><th>Bin</th><th>Div</th><th>System QOH (ea)</th><th>UOM Breakdown</th><th>Counted</th><th>Counter</th></tr></thead>
+  <tbody>
+    ${matchRows.map(e=>`<tr>
+      <td style="font-weight:700">${e.pc}</td>
+      <td style="font-family:monospace">${e.bin}</td>
+      <td>${e.loc||'?'}</td>
+      <td>${(e.qoh||0).toLocaleString()}</td>
+      <td><div class="uom-detail">${uomDetail(e)||'single UOM'}</div></td>
+      <td>${(e.counted||0).toLocaleString()}</td>
+      <td style="font-size:10px;color:#888">${e.scanned_by||''}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>` : ''}
+
+${conflictRows.length ? `
+<div class="page-break"></div>
+<h2 class="conflict">⚠ Allocation Conflicts (${conflictRows.length}) — partial adj in Apprise, Ops action needed</h2>
+<table>
+  <thead><tr><th>Product</th><th>Bin</th><th>Div</th><th>System QOH (ea)</th><th>Allocated (ea)</th><th>Counted</th><th>Full Delta</th><th>Apprise Adj</th><th>Ops Needed</th><th>Counter</th></tr></thead>
+  <tbody>
+    ${conflictRows.map(e=>`<tr style="background:#fffbeb">
+      <td style="font-weight:700">${e.pc}</td>
+      <td style="font-family:monospace">${e.bin}</td>
+      <td>${e.loc||'?'}</td>
+      <td>${(e.qoh||0).toLocaleString()}</td>
+      <td style="color:#d97706;font-weight:700">${(e.alloc||0).toLocaleString()}</td>
+      <td>${(e.counted||0).toLocaleString()}</td>
+      <td class="delta" style="color:#dc2626">${fmtN(e.delta)}</td>
+      <td style="font-weight:700;color:#d97706">${fmtN(e.exportDelta)}</td>
+      <td style="color:#dc2626;font-size:10px">${fmtN((e.delta||0)-(e.exportDelta||0))} remaining after order cancel</td>
+      <td style="font-size:10px;color:#888">${e.scanned_by||''}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>` : ''}
+
+${missingRows.length ? `
+<div class="page-break"></div>
+<h2 class="missing">📍 Bin Missing (${missingRows.length}) — scanned but not in bin report, added to Apprise</h2>
+<table>
+  <thead><tr><th>Product</th><th>Bin</th><th>Div</th><th>Counted</th><th>Apprise Qty</th><th>Note</th><th>Counter</th></tr></thead>
+  <tbody>
+    ${missingRows.filter(e=>!e.isZeroBinUnknown).map(e=>`<tr style="background:#ede9fe">
+      <td style="font-weight:700">${e.pc}</td>
+      <td style="font-family:monospace">${e.bin}</td>
+      <td>${e.loc||'?'}</td>
+      <td>${(e.counted||0).toLocaleString()}</td>
+      <td style="font-weight:700;color:#6d28d9">${fmtN(e.exportDelta??e.delta??e.counted??0)}</td>
+      <td><span class="note-badge badge-missing">Add to Apprise</span></td>
+      <td style="font-size:10px;color:#888">${e.scanned_by||''}</td>
+    </tr>`).join('')}
+    ${missingRows.filter(e=>e.isZeroBinUnknown).map(e=>`<tr style="background:#fee2e2">
+      <td colspan="4" style="font-weight:700;color:#dc2626">⬤ Zero bin marked: ${e.bin} — not in bin report, no adjustment generated</td>
+      <td>0</td><td><span class="note-badge badge-zero">Zero Bin Not in Report</span></td>
+      <td style="font-size:10px;color:#888">${e.scanned_by||''}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>` : ''}
+
+<div style="margin-top:20px;font-size:10px;color:#999;text-align:right;">IC Scanner — Chapman Warehouse · ${now.toISOString()}</div>
+</body></html>`;
+
+  const win = window.open('', '_blank', 'width=1100,height=750');
+  if(win){ win.document.write(reportHtml); win.document.close(); }
+  else showToast('warn','Popup Blocked','Allow popups for this site.');
+}
+
 // ── VP OPERATIONS REPORT ──
 async function generateVPReport(){
   const statusEl = document.getElementById('vpReportStatus');
