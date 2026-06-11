@@ -855,18 +855,31 @@
     <div id="activityLog"><div style="font-size:12px;color:var(--text-dim);">No activity yet.</div></div>
   </div>
 
-  <!-- VP Operations Report -->
+  <!-- Cycle Count Report -->
   <div class="msection">
-    <h3>📋 VP Operations Count Report</h3>
+    <h3>📋 Cycle Count Report</h3>
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.6;">
-      Generates a read-only summary report for the VP of Operations. Covers all counters across both active and archived sessions. Does not affect live counts or archives.
+      Summary report for all counters — bins, quantities, timestamps, divisions. Use the date filters to limit reads. Results are cached for 5 minutes.
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-      <input id="vpReportDateFrom" type="date" class="finput" style="flex:1;min-width:130px;" title="From date (leave blank for all)">
-      <input id="vpReportDateTo" type="date" class="finput" style="flex:1;min-width:130px;" title="To date (leave blank for all)">
+      <input id="vpReportDateFrom" type="date" class="finput" style="flex:1;min-width:130px;" title="From date (leave blank for today)">
+      <input id="vpReportDateTo" type="date" class="finput" style="flex:1;min-width:130px;" title="To date">
     </div>
-    <button onclick="generateVPReport()" style="width:100%;padding:14px;background:#a78bfa;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;">📋 Generate Report</button>
+    <button onclick="generateVPReport()" style="width:100%;padding:14px;background:#a78bfa;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;">📋 Generate Cycle Count Report</button>
     <div id="vpReportStatus" style="font-size:11px;color:var(--text-dim);text-align:center;min-height:16px;"></div>
+  </div>
+
+  <!-- Suspect Entry Cleanup -->
+  <div class="msection" id="suspectCleanupSection" style="display:none;">
+    <h3 style="color:var(--danger);">🗑 Suspect Qty Entries</h3>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.6;">
+      These entries have quantities over 9,999 — likely caused by a scanner firing into the qty field. Review and delete individually or all at once. <strong>This cannot be undone.</strong>
+    </div>
+    <div id="suspectEntriesList"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button onclick="deleteAllSuspectEntries()" style="flex:1;padding:12px;background:var(--danger);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">🗑 Delete All Suspect Entries</button>
+      <button onclick="refreshSuspectEntries()" style="padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text-dim);font-size:13px;cursor:pointer;">🔄</button>
+    </div>
   </div>
 
   <!-- Cycle Count Manager & Archive — accessed from Mgr tab -->
@@ -1716,7 +1729,7 @@ function reallySwitch(tab){
   if(tab==='scan') setTimeout(()=>focusProductField(), 100);
   if(tab==='queue') fetchQueue();
   if(tab==='count') initCountTab();
-  if(tab==='manager'){ fetchQueue(); updateManagerUI(); }
+  if(tab==='manager'){ fetchQueue(); updateManagerUI(); loadSuspectEntries(); }
 }
 
 function useSuggestedBin(){ document.getElementById('fBin').value=document.getElementById('suggestedBinVal').textContent; focusQty(); }
@@ -3499,56 +3512,240 @@ ${missingRows.length ? `
   else showToast('warn','Popup Blocked','Allow popups for this site.');
 }
 
-// ── VP OPERATIONS REPORT ──
-async function generateVPReport(){
-  const statusEl = document.getElementById('vpReportStatus');
-  if(!dbReady||!db){ statusEl.textContent='Not connected to Firebase.'; return; }
-  statusEl.textContent='Loading data…';
+// ── SUSPECT ENTRY CLEANUP ──
+let _suspectDocs = []; // {id, collection, data}
 
-  const dateFrom = document.getElementById('vpReportDateFrom').value;
-  const dateTo   = document.getElementById('vpReportDateTo').value;
-  const fromTs   = dateFrom ? new Date(dateFrom+'T00:00:00') : null;
-  const toTs     = dateTo   ? new Date(dateTo+'T23:59:59')   : null;
+async function loadSuspectEntries(){
+  if(!dbReady||!db) return;
+  _suspectDocs = [];
+  const SUSPECT_QTY = 9999;
 
   try{
-    // Fetch both collections — never modify either
     const [liveSnap, archSnap] = await Promise.all([
       db.collection('rtp_cycle_count').get(),
       db.collection('rtp_cc_archive').get()
     ]);
+    liveSnap.docs.forEach(d=>{
+      const data = d.data();
+      if(!data.zero_bin && (parseInt(data.counted)||0) > SUSPECT_QTY)
+        _suspectDocs.push({id:d.id, collection:'rtp_cycle_count', data});
+    });
+    archSnap.docs.forEach(d=>{
+      const data = d.data();
+      if(!data.zero_bin && (parseInt(data.counted)||0) > SUSPECT_QTY)
+        _suspectDocs.push({id:d.id, collection:'rtp_cc_archive', data});
+    });
+    renderSuspectEntries();
+    const section = document.getElementById('suspectCleanupSection');
+    if(section) section.style.display = _suspectDocs.length ? '' : 'none';
+  } catch(e){ console.error('loadSuspectEntries:', e); }
+}
 
-    // Merge + deduplicate on client_id (stable doc ID we set on every write)
+function renderSuspectEntries(){
+  const el = document.getElementById('suspectEntriesList');
+  if(!el) return;
+  if(!_suspectDocs.length){
+    el.innerHTML = '<div style="font-size:12px;color:var(--success);padding:8px 0;">✓ No suspect entries found.</div>';
+    document.getElementById('suspectCleanupSection').style.display = 'none';
+    return;
+  }
+  el.innerHTML = _suspectDocs.map((s,i)=>{
+    const d  = s.data;
+    const ts = d.scanned_at?.toDate ? d.scanned_at.toDate() : new Date(d.scanned_at||0);
+    const t  = ts.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="flex:1;">
+        <div style="font-family:var(--mono);font-size:13px;font-weight:700;">${d.pc||'?'}
+          <span style="color:var(--danger);margin-left:6px;">× ${(d.counted||0).toLocaleString()}</span>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);">📦 ${d.bin||'?'} · ${d.loc||'?'} · 👤 ${d.scanned_by||'?'} · ${t} · <span style="opacity:0.6;">${s.collection}</span></div>
+      </div>
+      <button onclick="deleteSuspectEntry(${i})"
+        style="background:var(--danger-dim);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:var(--danger);font-size:12px;font-weight:600;padding:6px 12px;cursor:pointer;white-space:nowrap;">
+        🗑 Delete
+      </button>
+    </div>`;
+  }).join('');
+}
+
+async function deleteSuspectEntry(index){
+  const s = _suspectDocs[index];
+  if(!s) return;
+  const d = s.data;
+  if(!confirm(`Delete this entry?\n\n${d.pc} × ${(d.counted||0).toLocaleString()}\nBin: ${d.bin} · Counter: ${d.scanned_by}\n\nThis cannot be undone.`)) return;
+  try{
+    await db.collection(s.collection).doc(s.id).delete();
+    _suspectDocs.splice(index, 1);
+    _vpReportCache = null; // invalidate cache so next report reflects deletion
+    renderSuspectEntries();
+    showToast('ok','Deleted', `${d.pc} × ${d.counted} removed from ${s.collection}.`);
+  } catch(e){
+    showToast('err','Delete Failed', e.message);
+  }
+}
+
+async function deleteAllSuspectEntries(){
+  if(!_suspectDocs.length) return;
+  if(!confirm(`Permanently delete ALL ${_suspectDocs.length} suspect entries?\n\nThis cannot be undone.`)) return;
+
+  let deleted = 0, failed = 0;
+  // Batch deletes — Firestore batch limit is 500
+  const BATCH = 400;
+  for(let i=0; i<_suspectDocs.length; i+=BATCH){
+    try{
+      const batch = db.batch();
+      _suspectDocs.slice(i, i+BATCH).forEach(s=>{
+        batch.delete(db.collection(s.collection).doc(s.id));
+      });
+      await batch.commit();
+      deleted += Math.min(BATCH, _suspectDocs.length - i);
+    } catch(e){
+      console.error('Batch delete error:', e);
+      failed += Math.min(BATCH, _suspectDocs.length - i);
+    }
+  }
+  _suspectDocs = [];
+  _vpReportCache = null; // invalidate cache
+  renderSuspectEntries();
+  if(failed) showToast('warn','Partial Delete', `${deleted} deleted, ${failed} failed.`);
+  else showToast('ok','All Deleted', `${deleted} suspect entries permanently removed.`);
+}
+
+async function refreshSuspectEntries(){
+  const el = document.getElementById('suspectEntriesList');
+  if(el) el.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px;">Loading…</div>';
+  await loadSuspectEntries();
+}
+
+// ── CYCLE COUNT REPORT ──
+let _vpReportCache = null; // { key, entries, suspectEntries, ts }
+
+async function generateVPReport(){
+  const statusEl = document.getElementById('vpReportStatus');
+  if(!dbReady||!db){ statusEl.textContent='Not connected to Firebase.'; return; }
+
+  // Default date range to today if nothing selected
+  const todayStr = new Date().toISOString().slice(0,10);
+  const dateFrom = document.getElementById('vpReportDateFrom').value || todayStr;
+  const dateTo   = document.getElementById('vpReportDateTo').value   || todayStr;
+
+  const fromTs = new Date(dateFrom+'T00:00:00');
+  const toTs   = new Date(dateTo+'T23:59:59');
+  const cacheKey = dateFrom+'|'+dateTo;
+
+  // Use cache if same date range and less than 5 minutes old
+  const CACHE_TTL = 5 * 60 * 1000;
+  if(_vpReportCache && _vpReportCache.key === cacheKey && (Date.now()-_vpReportCache.fetched) < CACHE_TTL){
+    statusEl.textContent='Using cached data ('+Math.round((Date.now()-_vpReportCache.fetched)/1000)+'s old). Generating report…';
+    buildAndOpenVPReport(_vpReportCache.allEntries, _vpReportCache.suspectEntries, dateFrom, dateTo, statusEl, true);
+    return;
+  }
+
+  statusEl.textContent='Fetching data…';
+
+  try{
+    // Convert dates to Firestore Timestamps for server-side filtering
+    const fromFT = firebase.firestore.Timestamp.fromDate(fromTs);
+    const toFT   = firebase.firestore.Timestamp.fromDate(toTs);
+
+    // Push date filter to Firestore — only fetch docs in range, not entire collections
+    const [liveSnap, archSnap] = await Promise.all([
+      db.collection('rtp_cycle_count')
+        .where('scanned_at', '>=', fromFT)
+        .where('scanned_at', '<=', toFT)
+        .get(),
+      db.collection('rtp_cc_archive')
+        .where('scanned_at', '>=', fromFT)
+        .where('scanned_at', '<=', toFT)
+        .get()
+    ]);
+
+    statusEl.textContent=`Fetched ${liveSnap.size} live + ${archSnap.size} archived docs. Processing…`;
+
     const seen = new Set();
-    const allEntries = [];
-    const suspectEntries = []; // qty looks like a scanned barcode
-    const SUSPECT_QTY = 9999; // anything over this is almost certainly a misfired scanner
+    const allEntries     = [];
+    const suspectEntries = [];
+    const SUSPECT_QTY    = 9999;
 
     const addEntry = doc => {
-      const d = {id: doc.id, ...doc.data()};
+      const d   = {id: doc.id, ...doc.data()};
       const key = d.client_id || doc.id;
       if(seen.has(key)) return;
       seen.add(key);
-      const ts = d.scanned_at?.toDate ? d.scanned_at.toDate() : new Date(d.scanned_at||0);
-      if(fromTs && ts < fromTs) return;
-      if(toTs   && ts > toTs)   return;
       if(d.zero_bin) return;
+      const ts  = d.scanned_at?.toDate ? d.scanned_at.toDate() : new Date(d.scanned_at||0);
       const qty = parseInt(d.counted)||0;
-      if(qty > SUSPECT_QTY){
-        // Looks like a barcode was scanned into the qty field — flag it, exclude from stats
-        suspectEntries.push({...d, _ts: ts});
-        return;
-      }
+      if(qty > SUSPECT_QTY){ suspectEntries.push({...d, _ts: ts}); return; }
       allEntries.push({...d, _ts: ts});
     };
+
     liveSnap.docs.forEach(addEntry);
     archSnap.docs.forEach(addEntry);
 
-    if(!allEntries.length && !suspectEntries.length){
-      statusEl.textContent='No count entries found for the selected date range.';
-      return;
+    // Cache for reuse
+    _vpReportCache = { key: cacheKey, allEntries, suspectEntries, fetched: Date.now() };
+
+    // Show cleanup section automatically if suspects found
+    if(suspectEntries.length){
+      _suspectDocs = suspectEntries.map(e=>({
+        id: e.id, collection: 'rtp_cycle_count', data: e
+      }));
+      const section = document.getElementById('suspectCleanupSection');
+      if(section) section.style.display = '';
+      renderSuspectEntries();
     }
 
-    // ── Build per-counter stats ──
+    buildAndOpenVPReport(allEntries, suspectEntries, dateFrom, dateTo, statusEl, false);
+
+  } catch(e){
+    console.error('Report error:',e);
+    // Firestore index may not exist yet for this query — fall back to full fetch
+    if(e.code==='failed-precondition' || (e.message&&e.message.includes('index'))){
+      statusEl.textContent='Index not ready — falling back to full fetch (one-time cost)…';
+      await generateVPReportFallback(fromTs, toTs, dateFrom, dateTo, statusEl);
+    } else {
+      statusEl.textContent='Error: '+e.message;
+    }
+  }
+}
+
+// Fallback for when Firestore composite index hasn't been created yet
+async function generateVPReportFallback(fromTs, toTs, dateFrom, dateTo, statusEl){
+  try{
+    const [liveSnap, archSnap] = await Promise.all([
+      db.collection('rtp_cycle_count').get(),
+      db.collection('rtp_cc_archive').get()
+    ]);
+    const seen = new Set();
+    const allEntries = [], suspectEntries = [];
+    const SUSPECT_QTY = 9999;
+    const addEntry = doc => {
+      const d = {id:doc.id,...doc.data()};
+      const key = d.client_id||doc.id;
+      if(seen.has(key)) return;
+      seen.add(key);
+      if(d.zero_bin) return;
+      const ts = d.scanned_at?.toDate?d.scanned_at.toDate():new Date(d.scanned_at||0);
+      if(fromTs && ts < fromTs) return;
+      if(toTs   && ts > toTs)   return;
+      const qty = parseInt(d.counted)||0;
+      if(qty > SUSPECT_QTY){ suspectEntries.push({...d,_ts:ts}); return; }
+      allEntries.push({...d,_ts:ts});
+    };
+    liveSnap.docs.forEach(addEntry);
+    archSnap.docs.forEach(addEntry);
+    _vpReportCache = {key:dateFrom+'|'+dateTo, allEntries, suspectEntries, fetched:Date.now()};
+    buildAndOpenVPReport(allEntries, suspectEntries, dateFrom, dateTo, statusEl, false);
+  } catch(e){
+    statusEl.textContent='Error: '+e.message;
+  }
+}
+
+function buildAndOpenVPReport(allEntries, suspectEntries, dateFrom, dateTo, statusEl, fromCache){
+  if(!allEntries.length && !suspectEntries.length){
+    statusEl.textContent='No count entries found for the selected date range.';
+    return;
+  }
     const counterMap = {};
     allEntries.forEach(e=>{
       const name = e.scanned_by || 'Unknown';
@@ -3788,16 +3985,16 @@ ${suspectEntries.length ? `
     if(win){
       win.document.write(reportHtml);
       win.document.close();
-      statusEl.textContent=`Report generated: ${totalEntries} entries, ${counters.length} counter(s).`
-        + (suspectEntries.length ? ` ⚠ ${suspectEntries.length} suspect qty entry(entries) excluded — see report.` : '');
+      statusEl.textContent = (fromCache ? '(cached) ' : '') +
+        `Report: ${totalEntries} entries, ${counters.length} counter(s)` +
+        (suspectEntries.length ? ` · ⚠ ${suspectEntries.length} suspect qty excluded` : '');
     } else {
       statusEl.textContent='Popup blocked — allow popups for this site and try again.';
     }
-  } catch(e){
-    console.error('VP Report error:',e);
-    statusEl.textContent='Error: '+e.message;
-  }
 }
+
+// ══════════════════════════════════════════════════════════════
+// ── BOOT ──
 
 // ══════════════════════════════════════════════════════════════
 // ── BOOT ── — counters must not accidentally reload and lose session
