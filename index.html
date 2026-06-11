@@ -802,11 +802,19 @@
 
   <div class="msection">
     <h3>📊 Session Stats</h3>
-    <div class="stat-grid">
+    <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">Returns Queue</div>
+    <div class="stat-grid" style="margin-bottom:12px;">
       <div class="stat-card"><div class="stat-val" id="sItems">0</div><div class="stat-lbl">In Queue</div></div>
       <div class="stat-card"><div class="stat-val" id="sTotal">0</div><div class="stat-lbl">Total Units</div></div>
       <div class="stat-card"><div class="stat-val" id="sNew">0</div><div class="stat-lbl">New Products</div></div>
-      <div class="stat-card"><div class="stat-val" id="sLoc">Mixed</div><div class="stat-lbl">Mode</div></div>
+      <div class="stat-card"><div class="stat-val" id="sLoc">Mixed</div><div class="stat-lbl">Divisions</div></div>
+    </div>
+    <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">Cycle Count — Today</div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-val" id="sCCEntries">0</div><div class="stat-lbl">Entries</div></div>
+      <div class="stat-card"><div class="stat-val" id="sCCBins">0</div><div class="stat-lbl">Bins</div></div>
+      <div class="stat-card"><div class="stat-val" id="sCCCounters">0</div><div class="stat-lbl">Counters</div></div>
+      <div class="stat-card"><div class="stat-val" id="sCCDivs">—</div><div class="stat-lbl">Divisions</div></div>
     </div>
   </div>
 
@@ -2095,16 +2103,27 @@ function exportHistoryExcel(){
 
 // ── MANAGER UI ──
 function updateManagerUI(){
-  document.getElementById('sItems').textContent=queue.length;
-  document.getElementById('sTotal').textContent=queue.reduce((s,i)=>s+i.qty,0);
-  document.getElementById('sNew').textContent=queue.filter(i=>i.isNew).length;
-  const locs=[...new Set(queue.map(i=>i.loc))];
-  document.getElementById('sLoc').textContent=locs.length?locs.sort().join('/'):'—';
-  document.getElementById('exportCount').textContent=
-    queue.length?`${queue.length} items · ${queue.reduce((s,i)=>s+i.qty,0)} units · ${[...new Set(queue.map(i=>i.loc))].length} location(s)`:'No items in queue yet.';
-  const log=document.getElementById('activityLog');
+  // ── Returns queue stats ──
+  document.getElementById('sItems').textContent = queue.length;
+  document.getElementById('sTotal').textContent = queue.reduce((s,i)=>s+i.qty,0);
+  document.getElementById('sNew').textContent   = queue.filter(i=>i.isNew).length;
+  const locs = [...new Set(queue.map(i=>i.loc))];
+  document.getElementById('sLoc').textContent   = locs.length ? locs.sort().join('/') : '—';
+
+  // ── Cycle count stats (today's entries from live listener) ──
+  const ccE = ccEntries.filter(e=>!e.zero_bin);
+  document.getElementById('sCCEntries').textContent  = ccE.length;
+  document.getElementById('sCCBins').textContent     = new Set(ccE.map(e=>e.bin||'')).size;
+  document.getElementById('sCCCounters').textContent = new Set(ccE.map(e=>e.scanned_by||'?')).size;
+  const ccDivs = [...new Set(ccE.filter(e=>e.loc).map(e=>e.loc))];
+  document.getElementById('sCCDivs').textContent     = ccDivs.length ? ccDivs.sort().join('/') : '—';
+
+  document.getElementById('exportCount').textContent =
+    queue.length ? `${queue.length} items · ${queue.reduce((s,i)=>s+i.qty,0)} units · ${locs.length} location(s)` : 'No items in queue yet.';
+
+  const log = document.getElementById('activityLog');
   if(!activityLog.length){ log.innerHTML='<div style="font-size:12px;color:var(--text-dim);">No activity yet.</div>'; return; }
-  log.innerHTML=activityLog.slice(0,10).map(a=>`
+  log.innerHTML = activityLog.slice(0,10).map(a=>`
     <div class="sess-item">
       <div class="sess-dot" style="${a.isNew?'background:var(--warn)':''}"></div>
       <div class="sess-pc">[${a.loc}] ${a.pc}</div>
@@ -2491,6 +2510,8 @@ function startCCListener(){
           return ta - tb;
         });
       renderCCScanList();
+      // Keep Mgr tab CC stats in sync with live count feed
+      if(document.getElementById('sCCEntries')) updateManagerUI();
       const badge = document.getElementById('ccMgrCountBadge');
       if(badge) badge.textContent = ccEntries.length;
     }, e=>{
@@ -3789,9 +3810,12 @@ function buildAndOpenVPReport(allEntries, suspectEntries, dateFrom, dateTo, stat
     const fmt = dt => dt.toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'});
     const fmtT = dt => dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     const fmtFull = dt => fmt(dt)+' '+fmtT(dt);
-    const dateRange = dateFrom||dateTo
-      ? ((dateFrom?fmt(fromTs):'start')+' – '+(dateTo?fmt(toTs):'now'))
-      : (fmt(earliest)+' – '+fmt(latest));
+    // Reconstruct date objects from the strings passed in (not available as Date objects here)
+    const fromTsLocal = dateFrom ? new Date(dateFrom+'T00:00:00') : null;
+    const toTsLocal   = dateTo   ? new Date(dateTo+'T23:59:59')   : null;
+    const dateRange = (fromTsLocal||toTsLocal)
+      ? ((fromTsLocal ? fmt(fromTsLocal) : 'start') + ' – ' + (toTsLocal ? fmt(toTsLocal) : 'now'))
+      : (allEntries.length ? fmt(earliest)+' – '+fmt(latest) : 'all dates');
 
     const avgMinutes = (counterData) => {
       const times = counterData.entries.map(e=>e._ts.getTime());
