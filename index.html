@@ -2366,6 +2366,18 @@ async function saveCCItemNow(){
   const counted = parseInt(document.getElementById('ccCounted').value);
   if(!rawPc){ showToast('err','Missing Product','Scan or enter a product code.'); return; }
   if(isNaN(counted)||counted<0){ showToast('err','Invalid Qty','Enter 0 or more.'); return; }
+  // Catch barcode-in-qty-field: if qty looks like a barcode (8+ digits) warn the counter
+  if(counted > 9999){
+    const qtyStr = document.getElementById('ccCounted').value.trim();
+    if(/^\d{8,}$/.test(qtyStr)){
+      document.getElementById('ccCounted').value = '';
+      document.getElementById('ccCounted').focus();
+      showToast('err','Invalid Qty — Scanner Misfire','That looks like a barcode was scanned into the qty field. Please type the quantity manually.');
+      return;
+    }
+    // Not a barcode pattern but still huge — confirm before saving
+    if(!confirm('Quantity of '+counted.toLocaleString()+' seems very high.\nAre you sure this is correct?')) return;
+  }
   const found = lookupProduct(rawPc);
   const pc    = found ? found.pc : rawPc.toUpperCase();
   const loc   = found ? found.loc : document.getElementById('ccLoc').value || '';
@@ -3508,21 +3520,30 @@ async function generateVPReport(){
     // Merge + deduplicate on client_id (stable doc ID we set on every write)
     const seen = new Set();
     const allEntries = [];
+    const suspectEntries = []; // qty looks like a scanned barcode
+    const SUSPECT_QTY = 9999; // anything over this is almost certainly a misfired scanner
+
     const addEntry = doc => {
       const d = {id: doc.id, ...doc.data()};
-      const key = d.client_id || doc.id; // fall back to doc ID if client_id missing
+      const key = d.client_id || doc.id;
       if(seen.has(key)) return;
       seen.add(key);
       const ts = d.scanned_at?.toDate ? d.scanned_at.toDate() : new Date(d.scanned_at||0);
       if(fromTs && ts < fromTs) return;
       if(toTs   && ts > toTs)   return;
-      if(d.zero_bin) return; // exclude zero-bin markers from product stats
+      if(d.zero_bin) return;
+      const qty = parseInt(d.counted)||0;
+      if(qty > SUSPECT_QTY){
+        // Looks like a barcode was scanned into the qty field — flag it, exclude from stats
+        suspectEntries.push({...d, _ts: ts});
+        return;
+      }
       allEntries.push({...d, _ts: ts});
     };
     liveSnap.docs.forEach(addEntry);
     archSnap.docs.forEach(addEntry);
 
-    if(!allEntries.length){
+    if(!allEntries.length && !suspectEntries.length){
       statusEl.textContent='No count entries found for the selected date range.';
       return;
     }
@@ -3640,6 +3661,39 @@ async function generateVPReport(){
 <div class="subtitle">Chapman Warehouse — VP of Operations</div>
 <div class="meta">Period: ${dateRange} &nbsp;·&nbsp; Generated: ${fmtFull(new Date())} &nbsp;·&nbsp; Counters: ${counters.length}</div>
 
+<!-- SUSPECT ENTRIES WARNING -->
+${suspectEntries.length ? `
+<div style="background:#fef2f2;border:2px solid #fca5a5;border-radius:10px;padding:14px 18px;margin-bottom:24px;">
+  <div style="font-size:14px;font-weight:700;color:#dc2626;margin-bottom:6px;">⚠ ${suspectEntries.length} Suspect Qty Entry(entries) — EXCLUDED from all totals</div>
+  <div style="font-size:11px;color:#7f1d1d;margin-bottom:10px;line-height:1.6;">
+    These entries have a quantity over 9,999 — almost certainly caused by a scanner firing into the qty field instead of a number being typed.
+    They have been <strong>excluded from all statistics</strong> in this report. The entries still exist in Firebase and should be corrected or deleted.
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:11px;">
+    <thead><tr style="background:#fee2e2;">
+      <th style="padding:5px 8px;text-align:left;">Counter</th>
+      <th style="padding:5px 8px;text-align:left;">Product</th>
+      <th style="padding:5px 8px;text-align:left;">Bin</th>
+      <th style="padding:5px 8px;text-align:left;">Division</th>
+      <th style="padding:5px 8px;text-align:left;color:#dc2626;">Suspect Qty</th>
+      <th style="padding:5px 8px;text-align:left;">Time</th>
+    </tr></thead>
+    <tbody>
+      ${suspectEntries.map(e=>{
+        const t = e._ts.toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+        return `<tr style="border-bottom:1px solid #fca5a5;">
+          <td style="padding:5px 8px;">${e.scanned_by||'?'}</td>
+          <td style="padding:5px 8px;font-weight:700;">${e.pc||'?'}</td>
+          <td style="padding:5px 8px;font-family:monospace;">${e.bin||'?'}</td>
+          <td style="padding:5px 8px;">${e.loc||'?'}</td>
+          <td style="padding:5px 8px;font-weight:700;color:#dc2626;">${(e.counted||0).toLocaleString()}</td>
+          <td style="padding:5px 8px;">${t}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+</div>` : ''}
+
 <!-- SUMMARY -->
 <div class="section">
   <h2>Summary</h2>
@@ -3734,7 +3788,8 @@ async function generateVPReport(){
     if(win){
       win.document.write(reportHtml);
       win.document.close();
-      statusEl.textContent=`Report generated: ${totalEntries} entries, ${counters.length} counter(s).`;
+      statusEl.textContent=`Report generated: ${totalEntries} entries, ${counters.length} counter(s).`
+        + (suspectEntries.length ? ` ⚠ ${suspectEntries.length} suspect qty entry(entries) excluded — see report.` : '');
     } else {
       statusEl.textContent='Popup blocked — allow popups for this site and try again.';
     }
